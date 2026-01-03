@@ -176,7 +176,6 @@ Suitey follows a **single-process architecture** with framework detection and ad
 ├─────────────────────────────────────┤
 │  Project Scanner (Orchestrator)     │
 │  ├─ Framework Detector              │
-│  │  └─ Adapter Registry             │
 │  ├─ Test Suite Discovery            │
 │  └─ Build System Detector           │
 │  Build Manager                      │
@@ -184,6 +183,9 @@ Suitey follows a **single-process architecture** with framework detection and ad
 │  Result Collector (structured data) │
 │  Report Generator                   │
 │  Report Server Manager              │
+├─────────────────────────────────────┤
+│  Shared Components:                 │
+│  • Adapter Registry                 │
 ├─────────────────────────────────────┤
 │  Presentation Layer:                │
 │  • Dashboard Formatter              │
@@ -211,7 +213,7 @@ The architecture follows a hierarchical orchestration pattern:
 3. **Adapter Registry** is a shared component:
    - Maintains a registry of framework adapters (BATS, Rust, Jest, pytest, etc.)
    - Provides framework-specific detection, discovery, and execution logic
-   - Used by Framework Detector to coordinate adapter-based detection
+   - Used by Framework Detector, Project Scanner and Build System Detector to coordinate adapter-based detection
    - Each adapter implements detection, discovery, build detection, and execution methods
 
 4. **Test Suite Discovery** is a component orchestrated by Project Scanner:
