@@ -63,6 +63,31 @@ is_bats_file() {
   return 1
 }
 
+# Count the number of @test annotations in a BATS file
+count_bats_tests() {
+  local file="$1"
+  local count=0
+  
+  # Verify file exists and is readable
+  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
+    echo "0"
+    return
+  fi
+  
+  # Count lines that start with @test (allowing for whitespace)
+  # Read file directly line by line - most reliable method across all environments
+  count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Remove leading whitespace and check if line starts with @test
+    trimmed_line="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$trimmed_line" == @test* ]]; then
+      ((count++))
+    fi
+  done < "$file"
+  
+  echo "$count"
+}
+
 # Find all .bats files in a directory (recursively)
 find_bats_files() {
   local dir="$1"
@@ -231,6 +256,7 @@ discover_bats_suites() {
     # Ensure rel_path doesn't start with /
     rel_path="${rel_path#/}"
     local suite_name
+    local test_count
     
     # Generate suite name from file path
     # Remove .bats extension and replace / with -
@@ -242,8 +268,16 @@ discover_bats_suites() {
       suite_name=$(basename "$file" .bats)
     fi
     
-    # Add suite metadata
-    DISCOVERED_SUITES+=("bats|$suite_name|$file|$rel_path")
+    # Count tests in this BATS file
+    # Ensure we have an absolute path for reliable file access
+    local abs_file="$file"
+    if [[ "$abs_file" != /* ]]; then
+      abs_file="$(cd "$(dirname "$abs_file")" && pwd)/$(basename "$abs_file")"
+    fi
+    test_count=$(count_bats_tests "$abs_file")
+    
+    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
+    DISCOVERED_SUITES+=("bats|$suite_name|$file|$rel_path|$test_count")
   done
 }
 
@@ -317,9 +351,10 @@ output_results() {
   # Output discovered test suites
   echo "Test Suites:" >&2
   for suite in "${DISCOVERED_SUITES[@]}"; do
-    IFS='|' read -r framework suite_name file_path rel_path <<< "$suite"
+    IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
     echo -e "  ${BLUE}•${NC} $suite_name ($framework)" >&2
     echo "    Path: $rel_path" >&2
+    echo "    Tests: $test_count" >&2
   done
   echo "" >&2
 }
