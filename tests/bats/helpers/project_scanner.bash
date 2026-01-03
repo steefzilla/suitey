@@ -64,8 +64,20 @@ assert_scanner_output() {
   
   # Check if output contains framework detection
   if [[ -n "$expected_framework" ]]; then
-    if ! echo "$output" | grep -q "BATS framework detected"; then
-      echo "ERROR: Expected BATS framework detection in output"
+    local framework_message=""
+    case "$expected_framework" in
+      "bats")
+        framework_message="BATS framework detected"
+        ;;
+      "rust")
+        framework_message="Rust framework detected"
+        ;;
+      *)
+        framework_message="${expected_framework} framework detected"
+        ;;
+    esac
+    if ! echo "$output" | grep -q "$framework_message"; then
+      echo "ERROR: Expected $expected_framework framework detection in output"
       echo "Output was:"
       echo "$output"
       return 1
