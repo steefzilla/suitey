@@ -452,6 +452,12 @@ run_adapter_registry_register() {
   # Source the script to make functions available
   source "$suitey_script"
 
+  # Source the adapter script if it exists
+  local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_identifier"
+  if [[ -f "$adapter_dir/adapter.sh" ]]; then
+    source "$adapter_dir/adapter.sh"
+  fi
+
   # Call the function and capture both stdout and stderr
   adapter_registry_register "$adapter_identifier" 2>&1
   return $?
@@ -886,29 +892,48 @@ assert_adapter_order() {
 # Create an adapter that fails during method calls
 create_failing_method_adapter() {
   local adapter_identifier="$1"
+  local failing_method="${2:-get_metadata}"
   local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_identifier"
 
   mkdir -p "$adapter_dir"
 
-  cat > "$adapter_dir/adapter.sh" << ADAPTER_EOF
+  # Create a complete adapter script
+  cat > "$adapter_dir/adapter.sh" << 'ADAPTER_EOF'
 #!/usr/bin/env bash
 
-# Failing method adapter - $adapter_identifier
+# Failing method adapter
+ADAPTER_EOF
 
-${adapter_identifier}_adapter_detect() {
-  local project_root="\$1"
-  echo '{"detected": true, "confidence": "high", "indicators": ["test"], "metadata": {}}'
-}
+  # Add the adapter identifier
+  echo "# Adapter: $adapter_identifier" >> "$adapter_dir/adapter.sh"
 
-${adapter_identifier}_adapter_check_binaries() {
-  echo "true"
-}
+  # Add the detect method
+  echo "" >> "$adapter_dir/adapter.sh"
+  echo "${adapter_identifier}_adapter_detect() {" >> "$adapter_dir/adapter.sh"
+  echo '  local project_root="$1"' >> "$adapter_dir/adapter.sh"
+  echo '  echo '\''{"detected": true, "confidence": "high", "indicators": ["test"], "metadata": {}}'\' >> "$adapter_dir/adapter.sh"
+  echo "}" >> "$adapter_dir/adapter.sh"
 
-${adapter_identifier}_adapter_get_metadata() {
-  # This method fails
-  echo "ERROR: Method call failed" >&2
-  return 1
-}
+  # Add check_binaries method
+  echo "" >> "$adapter_dir/adapter.sh"
+  echo "${adapter_identifier}_adapter_check_binaries() {" >> "$adapter_dir/adapter.sh"
+  echo '  echo "true"' >> "$adapter_dir/adapter.sh"
+  echo "}" >> "$adapter_dir/adapter.sh"
+
+  # Add get_metadata method
+  echo "" >> "$adapter_dir/adapter.sh"
+  echo "${adapter_identifier}_adapter_get_metadata() {" >> "$adapter_dir/adapter.sh"
+  if [[ "$failing_method" == "get_metadata" ]]; then
+    echo '  # This method fails' >> "$adapter_dir/adapter.sh"
+    echo '  echo "ERROR: Get metadata method failed" >&2' >> "$adapter_dir/adapter.sh"
+    echo '  return 1' >> "$adapter_dir/adapter.sh"
+  else
+    echo '  echo '\''{"name": "Failing Adapter", "identifier": "'$adapter_identifier'", "version": "1.0.0", "supported_languages": ["bash"], "capabilities": ["testing"], "required_binaries": [], "configuration_files": [], "test_file_patterns": ["*.bats"]}'\' >> "$adapter_dir/adapter.sh"
+  fi
+  echo "}" >> "$adapter_dir/adapter.sh"
+
+  # Add the rest of the methods
+  cat >> "$adapter_dir/adapter.sh" << ADAPTER_EOF
 
 ${adapter_identifier}_adapter_discover_test_suites() {
   local project_root="\$1"
@@ -982,6 +1007,78 @@ RESULTS_EOF
 }
 ADAPTER_EOF
 }
+# Create a completely failing adapter
+create_failing_adapter() {
+  local adapter_identifier="$1"
+  local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_identifier"
+
+  mkdir -p "$adapter_dir"
+
+  # Create a complete adapter script that fails on all methods
+  cat > "$adapter_dir/adapter.sh" << 'ADAPTER_EOF'
+#!/usr/bin/env bash
+
+# Failing adapter
+ADAPTER_EOF
+
+  # Add the adapter identifier
+  echo "# Adapter: $adapter_identifier" >> "$adapter_dir/adapter.sh"
+
+  # Add all the failing methods
+  cat >> "$adapter_dir/adapter.sh" << ADAPTER_EOF
+
+${adapter_identifier}_adapter_detect() {
+  local project_root="\$1"
+  echo "ERROR: Adapter detect failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_check_binaries() {
+  echo "false"
+}
+
+${adapter_identifier}_adapter_get_metadata() {
+  echo "ERROR: Adapter get_metadata failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_discover_test_suites() {
+  local project_root="\$1"
+  local framework_metadata="\$2"
+  echo "ERROR: Adapter discover_test_suites failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_detect_build_requirements() {
+  local project_root="\$1"
+  local framework_metadata="\$2"
+  echo "ERROR: Adapter detect_build_requirements failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_get_build_steps() {
+  local project_root="\$1"
+  local build_requirements="\$2"
+  echo "ERROR: Adapter get_build_steps failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_execute_test_suite() {
+  local test_suite="\$1"
+  local build_artifacts="\$2"
+  local execution_config="\$3"
+  echo "ERROR: Adapter execute_test_suite failed" >&2
+  return 1
+}
+
+${adapter_identifier}_adapter_parse_test_results() {
+  local output="\$1"
+  local exit_code="\$2"
+  echo "ERROR: Adapter parse_test_results failed" >&2
+  return 1
+}
+ADAPTER_EOF
+}
 
 # Create an adapter that returns invalid data
 create_invalid_return_adapter() {
@@ -990,10 +1087,18 @@ create_invalid_return_adapter() {
 
   mkdir -p "$adapter_dir"
 
-  cat > "$adapter_dir/adapter.sh" << ADAPTER_EOF
+  # Create a complete adapter script that returns invalid JSON for metadata
+  cat > "$adapter_dir/adapter.sh" << 'ADAPTER_EOF'
 #!/usr/bin/env bash
 
-# Invalid return adapter - $adapter_identifier
+# Invalid return adapter
+ADAPTER_EOF
+
+  # Add the adapter identifier
+  echo "# Adapter: $adapter_identifier" >> "$adapter_dir/adapter.sh"
+
+  # Add all the methods
+  cat >> "$adapter_dir/adapter.sh" << ADAPTER_EOF
 
 ${adapter_identifier}_adapter_detect() {
   local project_root="\$1"

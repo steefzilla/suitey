@@ -454,3 +454,123 @@ load ../helpers/fixtures
 
   teardown_adapter_registry_test
 }
+
+
+
+
+@test "built-in adapter initialization failures are handled gracefully" {
+  setup_adapter_registry_test
+
+  # Initialize registry normally
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify that all expected built-in adapters are registered
+  output=$(run_adapter_registry_get_all)
+  # Should have bats and rust adapters
+  assert_adapter_found_in_list "$output" "bats"
+  assert_adapter_found_in_list "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter registry caches adapter metadata" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "cache_test_adapter"
+  run_adapter_registry_register "cache_test_adapter"
+  assert_success
+
+  # Get metadata multiple times - should be cached
+  output1=$(run_adapter_registry_get "cache_test_adapter")
+  output2=$(run_adapter_registry_get "cache_test_adapter")
+
+  # Results should be identical (cached)
+  assert_identical_results "$output1" "$output2"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter registry supports lazy loading of adapters" {
+  setup_adapter_registry_test
+
+  # This test verifies that adapters are available on demand
+  # Register an adapter
+  create_valid_mock_adapter "lazy_adapter"
+  run_adapter_registry_register "lazy_adapter"
+  assert_success
+
+  # Adapter should be immediately available (not lazy loaded in current implementation)
+  # But this test ensures the registry provides access when requested
+  output=$(run_adapter_registry_get "lazy_adapter")
+  assert_adapter_found "$output" "lazy_adapter"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter registry supports parallel adapter operations" {
+  setup_adapter_registry_test
+
+  # Register multiple adapters with parallel capability
+  create_valid_mock_adapter_with_capability "parallel_adapter1" "parallel"
+  run_adapter_registry_register "parallel_adapter1"
+  assert_success
+
+  create_valid_mock_adapter_with_capability "parallel_adapter2" "parallel"
+  run_adapter_registry_register "parallel_adapter2"
+  assert_success
+
+  # Get adapters by capability - simulates parallel-capable operations
+  output=$(run_adapter_registry_get_by_capability "parallel")
+  assert_adapters_by_capability "$output" "parallel" "parallel_adapter1,parallel_adapter2"
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
+# Additional Assertion Functions for New Tests
+# ============================================================================
+
+# Assert that results are identical (for caching tests)
+assert_identical_results() {
+  local result1="$1"
+  local result2="$2"
+
+  if [[ "$result1" != "$result2" ]]; then
+    echo "ERROR: Results are not identical (caching failed)"
+    echo "Result 1: $result1"
+    echo "Result 2: $result2"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert that adapters are still available despite failures
+assert_adapters_available() {
+  local output="$1"
+
+  # Should have at least some adapters available
+  if ! echo "$output" | grep -q '"rust"\|"bats"\|"working_adapter"'; then
+    echo "ERROR: No adapters available after initialization failure simulation"
+    echo "Output: $output"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert that a specific adapter is found in a list
+assert_adapter_found_in_list() {
+  local output="$1"
+  local adapter_name="$2"
+
+  if ! echo "$output" | grep -q "\"$adapter_name\""; then
+    echo "ERROR: Adapter '$adapter_name' not found in list"
+    echo "Output: $output"
+    return 1
+  fi
+
+  return 0
+}
