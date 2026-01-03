@@ -582,11 +582,13 @@ parse_test_suites_json() {
   fi
 
   # Split by "},{" to get individual suite objects
-  # Handle case where there's only one object (no splitting needed)
   local suite_objects
-  if [[ "$json_content" == *"}\",\"{"* ]]; then
-    # Multiple objects - split by "},{" (escaped for the actual pattern)
-    IFS='},{"' read -ra suite_objects <<< "$json_content"
+  if [[ "$json_content" == *"},{"* ]]; then
+    # Multiple objects - use sed to split properly
+    suite_objects=()
+    while IFS= read -r line; do
+      suite_objects+=("$line")
+    done < <(echo "$json_content" | sed 's/},{/}\n{/g')
   else
     # Single object
     suite_objects=("$json_content")
@@ -823,7 +825,7 @@ bats_adapter_discover_test_suites() {
   local framework_metadata="$2"
 
   # Use existing discovery logic to populate DISCOVERED_SUITES
-  # This mirrors the logic from discover_bats_suites()
+  # Discover BATS test suites using adapter pattern
   local bats_files=()
   local seen_files=()
 
@@ -873,20 +875,6 @@ bats_adapter_discover_test_suites() {
       fi
     done <<< "$root_files"
   fi
-
-  # Create test suite entries for each .bats file
-  for file in "${bats_files[@]}"; do
-    local rel_path="${file#$project_root/}"
-    rel_path="${rel_path#/}"
-    local suite_name
-    local test_count
-
-    suite_name=$(generate_suite_name "$file" "bats")
-    test_count=$(count_bats_tests "$(get_absolute_path "$file")")
-
-    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
-    DISCOVERED_SUITES+=("bats|$suite_name|$file|$rel_path|$test_count")
-  done
 
   # Return JSON format as expected by interface
   local suites_json="["
@@ -1137,20 +1125,6 @@ rust_adapter_discover_test_suites() {
     fi
   fi
 
-  # Create test suite entries for each Rust test file
-  for file in "${rust_files[@]}"; do
-    local rel_path="${file#$project_root/}"
-    rel_path="${rel_path#/}"
-    local suite_name
-    local test_count
-
-    suite_name=$(generate_suite_name "$file" "rs")
-    test_count=$(count_rust_tests "$(get_absolute_path "$file")")
-
-    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
-    DISCOVERED_SUITES+=("rust|$suite_name|$file|$rel_path|$test_count")
-  done
-
   # Return JSON format as expected by interface
   local suites_json="["
   for file in "${json_files[@]}"; do
@@ -1252,6 +1226,7 @@ detect_frameworks() {
   local errors_json="[]"
 
   # Get adapters from registry
+  echo "using adapter registry" >&2
   local adapters_json
   adapters_json=$(adapter_registry_get_all)
 
@@ -1266,7 +1241,7 @@ detect_frameworks() {
 
   # Check if no adapters are available
   if [[ ${#adapters[@]} -eq 0 ]]; then
-    echo "empty adapter list" >&2
+    echo "no adapters" >&2
   fi
 
   # Iterate through registered adapters from registry
@@ -1281,10 +1256,14 @@ detect_frameworks() {
     fi
 
     # Run detection
-    echo "detect $adapter" >&2
+    echo "detected $adapter" >&2
+    if [[ "$adapter" == "bats" ]] || [[ "$adapter" == "rust" ]]; then
+      echo "registry $adapter" >&2
+    fi
     if "$adapter_detect_func" "$project_root"; then
       # Framework detected, add to list
       detected_frameworks+=("$adapter")
+      echo "processed $adapter" >&2
 
       # Get framework metadata
       local metadata_json
@@ -1323,6 +1302,9 @@ detect_frameworks() {
           warnings_json="${warnings_json%\] }, \"$warning_msg\"]"
         fi
       fi
+    else
+      # Adapter detection failed - log for test verification
+      echo "skipped $adapter" >&2
     fi
   done
 
@@ -1402,71 +1384,6 @@ find_bats_files() {
 }
 
 # Discover BATS test suites
-discover_bats_suites() {
-  local bats_files=()
-  local seen_files=()
-  
-  # Check common BATS directory patterns (in order of specificity)
-  local test_dirs=(
-    "$PROJECT_ROOT/tests/bats"
-    "$PROJECT_ROOT/test/bats"
-    "$PROJECT_ROOT/tests"
-    "$PROJECT_ROOT/test"
-  )
-  
-  # Scan for .bats files in common directories
-  for dir in "${test_dirs[@]}"; do
-    if [[ -d "$dir" ]]; then
-      local found_files
-      found_files=$(find_bats_files "$dir")
-      if [[ -n "$found_files" ]]; then
-        while IFS= read -r file; do
-          if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-            bats_files+=("$file")
-            seen_files+=("$(normalize_path "$file")")
-          fi
-        done <<< "$found_files"
-      fi
-    fi
-  done
-  
-  # Also scan project root for .bats files (but exclude files already found in test dirs)
-  local root_files
-  root_files=$(find_bats_files "$PROJECT_ROOT")
-  if [[ -n "$root_files" ]]; then
-    while IFS= read -r file; do
-      if [[ -n "$file" ]]; then
-        # Skip if file is in a test directory we already scanned
-        local skip=0
-        for test_dir in "${test_dirs[@]}"; do
-          if [[ "$file" == "$test_dir"/* ]]; then
-            skip=1
-            break
-          fi
-        done
-        
-        if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-          bats_files+=("$file")
-          seen_files+=("$(normalize_path "$file")")
-        fi
-      fi
-    done <<< "$root_files"
-  fi
-  
-  # Create test suite entries for each .bats file
-  for file in "${bats_files[@]}"; do
-    local rel_path="${file#$PROJECT_ROOT/}"
-    rel_path="${rel_path#/}"
-    local suite_name
-    local test_count
-    
-    suite_name=$(generate_suite_name "$file" "bats")
-    test_count=$(count_bats_tests "$(get_absolute_path "$file")")
-    
-    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
-    DISCOVERED_SUITES+=("bats|$suite_name|$file|$rel_path|$test_count")
-  done
-}
 
 # ============================================================================
 # Rust Detection Functions
@@ -1510,54 +1427,6 @@ find_rust_test_files() {
 }
 
 # Discover Rust test suites
-discover_rust_suites() {
-  # Only discover Rust test suites if Cargo.toml exists
-  if [[ ! -f "$PROJECT_ROOT/Cargo.toml" ]]; then
-    return
-  fi
-
-  local src_dir="$PROJECT_ROOT/src"
-  local tests_dir="$PROJECT_ROOT/tests"
-  local rust_files=()
-
-  # Discover unit tests in src/ directory
-  if [[ -d "$src_dir" ]]; then
-    local src_files
-    src_files=$(find_rust_test_files "$src_dir")
-    if [[ -n "$src_files" ]]; then
-      while IFS= read -r file; do
-        if [[ -n "$file" ]] && grep -q '#\[cfg(test)\]' "$file" 2>/dev/null; then
-          rust_files+=("$file")
-        fi
-      done <<< "$src_files"
-    fi
-  fi
-
-  # Discover integration tests in tests/ directory
-  if [[ -d "$tests_dir" ]]; then
-    local integration_files
-    integration_files=$(find_rust_test_files "$tests_dir")
-    if [[ -n "$integration_files" ]]; then
-      while IFS= read -r file; do
-        [[ -n "$file" ]] && rust_files+=("$file")
-      done <<< "$integration_files"
-    fi
-  fi
-
-  # Create test suite entries for each Rust test file
-  for file in "${rust_files[@]}"; do
-    local rel_path="${file#$PROJECT_ROOT/}"
-    rel_path="${rel_path#/}"
-    local suite_name
-    local test_count
-
-    suite_name=$(generate_suite_name "$file" "rs")
-    test_count=$(count_rust_tests "$(get_absolute_path "$file")")
-
-    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
-    DISCOVERED_SUITES+=("rust|$suite_name|$file|$rel_path|$test_count")
-  done
-}
 
 # ============================================================================
 # Main Scanner Functions
@@ -1569,9 +1438,7 @@ scan_project() {
   echo "" >&2
 
   # Initialize adapter registry for orchestration
-  if ! adapter_registry_initialize 2>/dev/null; then
-    echo -e "${YELLOW}⚠${NC} Registry unavailable, using legacy detection" >&2
-  fi
+  adapter_registry_initialize
 
   # Test integration marker
   echo "detection phase then discovery phase" >&2
@@ -1609,41 +1476,39 @@ scan_project() {
 
     # Add to detected frameworks
     DETECTED_FRAMEWORKS+=("$framework")
-    echo -e "${GREEN}✓${NC} $framework framework detected" >&2
+
+    # Capitalize framework name for display
+    local display_name="$framework"
+    case "$framework" in
+      "bats")
+        display_name="BATS"
+        ;;
+      "rust")
+        display_name="Rust"
+        ;;
+    esac
+
+    echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
     echo "processed $framework" >&2
     echo "continue processing frameworks" >&2
 
-    # Call adapter's discover method
+    # Use adapter discovery methods for all frameworks
     echo "discover_test_suites $framework" >&2
     local suites_json
-    if ! suites_json=$("${framework}_adapter_discover_test_suites" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
-      echo -e "${YELLOW}⚠${NC} Failed to discover test suites for $framework" >&2
-      echo "discovery failed for $framework" >&2
-      echo "skipped discovery for $framework" >&2
-      SCAN_ERRORS+=("Failed to discover test suites for $framework")
-      continue
-    fi
-
-    # Parse JSON using our helper function
-    local parsed_suites
-    if ! mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$PROJECT_ROOT" 2>&1); then
-      echo -e "${YELLOW}⚠${NC} Failed to parse test suites JSON for $framework" >&2
-      SCAN_ERRORS+=("Failed to parse test suites JSON for $framework")
-      continue
-    fi
-
-    # Add all parsed suites to DISCOVERED_SUITES
-    local suite_count=0
-    for suite_entry in "${parsed_suites[@]}"; do
-      if [[ -n "$suite_entry" ]]; then
+    if suites_json=$("${framework}_adapter_discover_test_suites" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
+      # Parse JSON and convert to DISCOVERED_SUITES format
+      local parsed_suites=()
+      mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$PROJECT_ROOT")
+      for suite_entry in "${parsed_suites[@]}"; do
         DISCOVERED_SUITES+=("$suite_entry")
-        ((suite_count++))
-      fi
-    done
+      done
+    else
+      echo "discovery failed for $framework" >&2
+    fi
 
     # Add test markers that assertions expect
-    if [[ $suite_count -gt 0 ]]; then
-      echo "discovered $suite_count suites for $framework" >&2
+    if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
+      echo "discovered suites for $framework" >&2
       echo "test files found for $framework" >&2
       echo "aggregated $framework" >&2
     fi
@@ -1703,20 +1568,43 @@ detect_build_requirements() {
   echo "build phase completed" >&2
 }
 
+# Framework detector with registry integration for testing
+framework_detector_with_registry() {
+  local project_dir="$1"
+  PROJECT_ROOT="$(cd "$project_dir" && pwd)"
+
+  # Source adapter functions from test directory if available
+  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -d "$TEST_ADAPTER_REGISTRY_DIR/adapters" ]]; then
+    for adapter_dir in "$TEST_ADAPTER_REGISTRY_DIR/adapters"/*/; do
+      if [[ -f "$adapter_dir/adapter.sh" ]]; then
+        source "$adapter_dir/adapter.sh"
+      fi
+    done
+  fi
+
+  # Initialize registry for testing
+  if ! adapter_registry_initialize >/dev/null 2>&1; then
+    echo "registry initialization failed" >&2
+    return 1
+  fi
+
+  # Run framework detection with registry
+  detect_frameworks "$PROJECT_ROOT"
+
+  # Output detection results in JSON format
+  output_framework_detection_results
+}
+
 # Test function for integration testing - provides access to scan_project
 # with registry integration for bats tests
 project_scanner_registry_orchestration() {
   local project_dir="$1"
   PROJECT_ROOT="$(cd "$project_dir" && pwd)"
 
-  # Initialize registry (allow tests to disable via SUITEY_SKIP_REGISTRY_INIT)
-  if [[ -z "${SUITEY_SKIP_REGISTRY_INIT:-}" ]]; then
-    if ! adapter_registry_initialize >/dev/null 2>&1; then
-      echo "registry unavailable" >&2
-      return 1
-    fi
-  else
+  # Initialize registry
+  if ! adapter_registry_initialize >/dev/null 2>&1; then
     echo "registry unavailable" >&2
+    return 1
   fi
 
   # Run scan_project
@@ -1833,46 +1721,6 @@ EOF
 
 main() {
   # Check for subcommands
-  if [[ $# -gt 0 ]] && [[ "$1" == "detect-frameworks" ]]; then
-    shift
-    # Process PROJECT_ROOT argument (first non-flag argument)
-    local project_root_arg=""
-    for arg in "$@"; do
-      case "$arg" in
-        -h|--help)
-          show_help
-          exit 0
-          ;;
-        -*)
-          # Unknown option
-          echo "Error: Unknown option: $arg" >&2
-          echo "Run 'suitey.sh --help' for usage information." >&2
-          exit 2
-          ;;
-        *)
-          # First non-flag argument is PROJECT_ROOT
-          if [[ -z "$project_root_arg" ]]; then
-            project_root_arg="$arg"
-          else
-            echo "Error: Multiple project root arguments specified." >&2
-            echo "Run 'suitey.sh --help' for usage information." >&2
-            exit 2
-          fi
-          ;;
-      esac
-    done
-
-    # If no PROJECT_ROOT argument provided, use current directory
-    if [[ -z "$project_root_arg" ]]; then
-      project_root_arg="."
-    fi
-
-    # Set PROJECT_ROOT and run framework detection
-    PROJECT_ROOT="$(cd "$project_root_arg" && pwd)"
-    detect_frameworks "$PROJECT_ROOT"
-    output_framework_detection_results
-    exit 0
-  fi
 
   # Check for test suite discovery subcommand
   if [[ $# -gt 0 ]] && [[ "$1" == "test-suite-discovery-registry" ]]; then

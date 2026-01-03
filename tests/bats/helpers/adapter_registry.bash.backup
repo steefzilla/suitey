@@ -1358,3 +1358,19 @@ assert_concurrent_access_handled() {
 
   return 0
 }
+
+# Assert large registry handled
+assert_large_registry_handled() {
+  local output="$1"
+
+  # Should contain all the adapters
+  local adapter_count=$(echo "$output" | grep -o scale_adapter_[0-9]* | wc -l)
+  if [[ $adapter_count -lt 10 ]]; then
+    echo "ERROR: Expected 10 adapters to be registered"
+    echo "Found $adapter_count adapters"
+    echo "Output was: $output"
+    return 1
+  fi
+
+  return 0
+}

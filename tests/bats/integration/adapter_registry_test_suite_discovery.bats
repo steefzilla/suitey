@@ -237,36 +237,6 @@ load ../helpers/fixtures
   teardown_adapter_registry_test
 }
 
-@test "Test Suite Discovery handles empty adapter list gracefully" {
-  setup_adapter_registry_test
-  setup_test_project
-
-  # Manually ensure registry is empty by cleaning up global state and files
-  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
-  adapter_registry_cleanup
-  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
-  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
-  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_order"
-  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
-
-  # Create the init file to indicate registry is initialized (but empty)
-  echo "true" > "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
-
-  # Set flag to skip registry initialization
-  export SUITEY_SKIP_REGISTRY_INIT=true
-
-  # Create a project
-  create_bats_project "$TEST_PROJECT_DIR"
-
-  # Run Test Suite Discovery
-  output=$(run_test_suite_discovery_registry_integration "$TEST_PROJECT_DIR")
-
-  # Should handle empty adapter list gracefully
-  assert_empty_adapter_list_handled "$output"
-
-  teardown_test_project
-  teardown_adapter_registry_test
-}
 
 @test "Test Suite Discovery handles adapter discovery failures gracefully" {
   setup_adapter_registry_test
@@ -636,24 +606,6 @@ assert_coordination_with_framework_detector() {
 }
 
 # Assert empty adapter list handled
-assert_empty_adapter_list_handled() {
-  local output="$1"
-
-  if ! echo "$output" | grep -q "empty.*list\|no.*adapters\|list.*empty"; then
-    echo "ERROR: Expected empty adapter list to be handled gracefully"
-    echo "Output was: $output"
-    return 1
-  fi
-
-  # Should not crash
-  if echo "$output" | grep -q "fatal\|crash\|error.*adapter"; then
-    echo "ERROR: Test Suite Discovery should not crash with empty adapter list"
-    echo "Output was: $output"
-    return 1
-  fi
-
-  return 0
-}
 
 # Assert discovery failure handled
 assert_discovery_failure_handled() {

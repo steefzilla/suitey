@@ -476,26 +476,6 @@ assert_structured_output() {
 # ============================================================================
 
 # Run Framework Detector function and capture output
-run_framework_detector() {
-  local project_dir="${1:-$TEST_PROJECT_DIR}"
-  local output
-  local suitey_script
-
-  # Determine the path to suitey.sh
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    # Fallback: try to find it relative to current directory
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # For now, this will fail because detect_frameworks doesn't exist
-  # We'll implement a mock that calls the non-existent function
-  output=$("$suitey_script" detect-frameworks "$project_dir" 2>&1) || true
-  echo "$output"
-}
 
 # Extract detected frameworks from output
 get_detected_frameworks() {
