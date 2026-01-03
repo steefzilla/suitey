@@ -352,7 +352,277 @@ EOF
     teardown_test_project
     return 1
   fi
-  
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Detection Tests
+# ============================================================================
+
+@test "detect Cargo.toml file in project root" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_scanner_output "$output" "rust" "1"
+  teardown_test_project
+}
+
+@test "detect *_test.rs files in src/ directory" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/src"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  # Create test file with _test.rs pattern
+  create_rust_test_file "$TEST_PROJECT_DIR/src/utils_test.rs" "test_utils"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_scanner_output "$output" "rust" "1"
+  teardown_test_project
+}
+
+@test "detect test files in tests/ directory" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/tests"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  # Create integration test file
+  create_rust_integration_test_file "$TEST_PROJECT_DIR/tests/integration_test.rs" "integration_test"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_scanner_output "$output" "rust" "1"
+  teardown_test_project
+}
+
+@test "detect cargo binary availability" {
+  if is_cargo_available; then
+    setup_test_project
+    create_rust_project "$TEST_PROJECT_DIR"
+
+    output=$(run_scanner "$TEST_PROJECT_DIR")
+
+    # Should not have error about missing cargo
+    if echo "$output" | grep -q "cargo binary is not available"; then
+      echo "ERROR: Should detect cargo binary when available"
+      echo "Output: $output"
+      teardown_test_project
+      return 1
+    fi
+
+    teardown_test_project
+  else
+    skip "cargo binary not available for testing"
+  fi
+}
+
+@test "handle missing cargo binary gracefully" {
+  # This test can only work if cargo is actually unavailable or if we can properly mock it
+  # Since mocking PATH doesn't guarantee cargo won't be found, we skip if cargo is available
+  # In a real scenario, this would be tested on a system without cargo installed
+  if is_cargo_available; then
+    skip "cargo binary is available - cannot test missing binary scenario without proper mocking"
+  fi
+
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect Rust but warn about missing binary
+  if ! echo "$output" | grep -q "cargo binary is not available"; then
+    echo "ERROR: Should warn about missing cargo binary"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust File Pattern Matching Tests
+# ============================================================================
+
+@test "match *_test.rs file extension pattern" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/src"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  create_rust_test_file "$TEST_PROJECT_DIR/src/example_test.rs" "test_example"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_scanner_output "$output" "rust" "1"
+  teardown_test_project
+}
+
+@test "match files in tests/ directory for integration tests" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/tests"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  # Test various test file patterns in tests/ directory
+  create_rust_integration_test_file "$TEST_PROJECT_DIR/tests/integration.rs" "integration"
+  create_rust_integration_test_file "$TEST_PROJECT_DIR/tests/api_test.rs" "api_test"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect both test files
+  assert_scanner_output "$output" "rust" "2"
+  teardown_test_project
+}
+
+@test "handle nested directory structures for Rust tests" {
+  setup_test_project
+  create_rust_project_nested "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect all test files (lib.rs unit tests + integration tests)
+  assert_scanner_output "$output" "rust" "3"
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust No Test Suite Tests
+# ============================================================================
+
+@test "empty Rust project directory with only Cargo.toml" {
+  setup_test_project
+
+  # Create Cargo.toml but no source files or tests
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "empty_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_no_test_suites "$output"
+  teardown_test_project
+}
+
+@test "Rust project with Cargo.toml but no test files" {
+  setup_test_project
+
+  # Create Cargo.toml and source but no tests
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "source_only"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  mkdir -p "$TEST_PROJECT_DIR/src"
+  echo "pub fn example() {}" > "$TEST_PROJECT_DIR/src/lib.rs"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_no_test_suites "$output"
+  teardown_test_project
+}
+
+@test "project with Rust files but no Cargo.toml" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/src"
+
+  # Create Rust test file but no Cargo.toml
+  create_rust_test_file "$TEST_PROJECT_DIR/src/test.rs" "test_example"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_no_test_suites "$output"
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Output Format Tests
+# ============================================================================
+
+@test "Rust project default structured text output format" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Check for structured output elements
+  assert_structured_output "$output" "frameworks"
+  assert_structured_output "$output" "suites"
+
+  teardown_test_project
+}
+
+@test "Rust project validate structured text contains expected fields" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Check for detected frameworks field
+  assert_structured_output "$output" "frameworks"
+
+  # Check for test suites field
+  assert_structured_output "$output" "suites"
+
+  # Check that output contains framework name
+  if ! echo "$output" | grep -q "rust"; then
+    echo "ERROR: Output should contain framework name 'rust'"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "Rust project validate structured text contains test suite paths" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Check that output contains path information
+  if ! echo "$output" | grep -q "Path:"; then
+    echo "ERROR: Output should contain test suite paths"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
   teardown_test_project
 }
 

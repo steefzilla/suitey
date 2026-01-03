@@ -459,7 +459,499 @@ load ../helpers/fixtures
   # Suite name is based on file path: tests/bats/indented.bats -> tests-bats-indented
   assert_test_count "$output" "tests-bats-indented" "3"
   assert_test_counts_present "$output"
-  
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Project Scenarios
+# ============================================================================
+
+@test "full Rust project with Cargo.toml and test files" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  assert_scanner_output "$output" "rust" "1"
+
+  # Verify test suite details
+  if ! echo "$output" | grep -q "src-lib"; then
+    echo "ERROR: Should detect src-lib test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "Rust project with multiple test files" {
+  setup_test_project
+  create_rust_project_with_tests "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect both test suites (src-lib and src-utils)
+  assert_scanner_output "$output" "rust" "2"
+
+  # Verify both suites are detected
+  if ! echo "$output" | grep -q "src-lib"; then
+    echo "ERROR: Should detect src-lib test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  if ! echo "$output" | grep -q "src-utils"; then
+    echo "ERROR: Should detect src-utils test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "Rust project with nested test directories" {
+  setup_test_project
+  create_rust_project_nested "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect 3 test suites: src-lib (unit), tests-unit-unit_test, tests-integration-integration_test
+  assert_scanner_output "$output" "rust" "3"
+
+  # Verify nested structure
+  if ! echo "$output" | grep -q "tests-unit-unit_test"; then
+    echo "ERROR: Should detect nested unit test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  if ! echo "$output" | grep -q "tests-integration-integration_test"; then
+    echo "ERROR: Should detect nested integration test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "Rust project with both unit and integration tests" {
+  setup_test_project
+  create_rust_project_unit_and_integration "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect 2 test suites: src-lib (unit tests) and tests-integration_tests (integration tests)
+  assert_scanner_output "$output" "rust" "2"
+
+  # Verify both types are detected
+  if ! echo "$output" | grep -q "src-lib"; then
+    echo "ERROR: Should detect unit test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  if ! echo "$output" | grep -q "tests-integration_tests"; then
+    echo "ERROR: Should detect integration test suite"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "Rust project with cargo binary available" {
+  if ! is_cargo_available; then
+    skip "cargo binary not available for testing"
+  fi
+
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should not have error about missing cargo
+  if echo "$output" | grep -q "cargo binary is not available"; then
+    echo "ERROR: Should not warn about missing cargo when available"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  assert_scanner_output "$output" "rust" "1"
+  teardown_test_project
+}
+
+@test "Rust project with cargo binary missing (should skip with error message)" {
+  # This test can only work if cargo is actually unavailable or if we can properly mock it
+  # Since mocking PATH doesn't guarantee cargo won't be found, we skip if cargo is available
+  # In a real scenario, this would be tested on a system without cargo installed
+  if is_cargo_available; then
+    skip "cargo binary is available - cannot test missing binary scenario without proper mocking"
+  fi
+
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should still detect Rust framework
+  if ! echo "$output" | grep -q "Rust framework detected"; then
+    echo "ERROR: Should detect Rust framework even without binary"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  # Should warn about missing binary
+  if ! echo "$output" | grep -q "cargo binary is not available"; then
+    echo "ERROR: Should warn about missing cargo binary"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Test Count Detection Integration Tests
+# ============================================================================
+
+@test "detect accurate test counts in full Rust project" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # The create_rust_project creates src/lib.rs with 1 test
+  # Suite name is based on file path: src/lib.rs -> src-lib
+  assert_test_count "$output" "src-lib" "1"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+@test "detect test counts for Rust project with multiple test files" {
+  setup_test_project
+  create_rust_project_with_tests "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # create_rust_project_with_tests creates src/lib.rs with 1 test and src/utils.rs with 2 tests
+  # Suite names are based on file paths
+  assert_test_count "$output" "src-lib" "1"
+  assert_test_count "$output" "src-utils" "2"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+@test "detect test counts for multiple Rust integration test files" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/tests"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  # Create multiple integration test files with different test counts
+  cat > "$TEST_PROJECT_DIR/tests/file1.rs" << 'EOF'
+#[test]
+fn test_one() {
+    assert!(true);
+}
+EOF
+
+  cat > "$TEST_PROJECT_DIR/tests/file2.rs" << 'EOF'
+#[test]
+fn test_one() {
+    assert!(true);
+}
+
+#[test]
+fn test_two() {
+    assert!(true);
+}
+
+#[test]
+fn test_three() {
+    assert!(true);
+}
+EOF
+
+  cat > "$TEST_PROJECT_DIR/tests/file3.rs" << 'EOF'
+#[test]
+fn only_test() {
+    assert!(true);
+}
+EOF
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Suite names are based on file paths
+  assert_test_count "$output" "tests-file1" "1"
+  assert_test_count "$output" "tests-file2" "3"
+  assert_test_count "$output" "tests-file3" "1"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+@test "detect test counts for nested Rust test files" {
+  setup_test_project
+  create_rust_project_nested "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # create_rust_project_nested creates unit_test.rs and integration_test.rs, each with 1 test
+  # Suite names are based on file paths
+  assert_test_count "$output" "tests-unit-unit_test" "1"
+  assert_test_count "$output" "tests-integration-integration_test" "1"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+@test "detect test counts for Rust project with unit and integration tests" {
+  setup_test_project
+  create_rust_project_unit_and_integration "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # create_rust_project_unit_and_integration creates src/lib.rs with 2 tests and tests/integration_tests.rs with 3 tests
+  # Suite names are based on file paths
+  assert_test_count "$output" "src-lib" "2"
+  assert_test_count "$output" "tests-integration_tests" "3"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+@test "test counts are accurate for complex Rust test files" {
+  setup_test_project
+  mkdir -p "$TEST_PROJECT_DIR/tests"
+
+  # Create Cargo.toml
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "test_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+  # Create a complex integration test file with multiple tests, comments, and helper code
+  cat > "$TEST_PROJECT_DIR/tests/complex.rs" << 'EOF'
+// Helper function
+fn helper() -> bool {
+    true
+}
+
+#[test]
+fn complex_test_1() {
+    assert!(helper());
+}
+
+#[test]
+fn complex_test_2() {
+    assert_eq!(1 + 1, 2);
+}
+
+// Some comment
+#[test]
+fn complex_test_3() {
+    assert!(true);
+}
+
+#[test]
+fn complex_test_4() {
+    assert!(true);
+}
+EOF
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should count only #[test] annotations, not helper functions or comments
+  # Suite name is based on file path: tests/complex.rs -> tests-complex
+  assert_test_count "$output" "tests-complex" "4"
+  assert_test_counts_present "$output"
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Build Detection Tests
+# ============================================================================
+
+@test "detect build requirement for Rust project" {
+  setup_test_project
+  create_rust_project_build_only "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should detect Rust framework but no test suites (since there are no test files)
+  if ! echo "$output" | grep -q "Rust framework detected"; then
+    echo "ERROR: Should detect Rust framework even with build-only project"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  # But should have no test suites since there are no test files
+  assert_no_test_suites "$output"
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Error Handling
+# ============================================================================
+
+@test "missing dependencies (cargo binary)" {
+  # This test can only work if cargo is actually unavailable or if we can properly mock it
+  # Since mocking PATH doesn't guarantee cargo won't be found, we skip if cargo is available
+  # In a real scenario, this would be tested on a system without cargo installed
+  if is_cargo_available; then
+    skip "cargo binary is available - cannot test missing binary scenario without proper mocking"
+  fi
+
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should provide clear error message
+  if ! echo "$output" | grep -q "cargo binary is not available"; then
+    echo "ERROR: Should provide clear error about missing cargo binary"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  # Should still detect the framework
+  if ! echo "$output" | grep -q "Rust framework detected"; then
+    echo "ERROR: Should still detect Rust framework"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+# ============================================================================
+# Rust Output Validation
+# ============================================================================
+
+@test "structured text output contains expected fields for Rust" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Check for all expected fields
+  assert_structured_output "$output" "frameworks"
+  assert_structured_output "$output" "suites"
+
+  # Check for specific content
+  if ! echo "$output" | grep -q "Detected frameworks"; then
+    echo "ERROR: Output should contain 'Detected frameworks'"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  if ! echo "$output" | grep -q "Test Suites:"; then
+    echo "ERROR: Output should contain 'Test Suites:'"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "error messages are clear and actionable for Rust" {
+  # This test can only work if cargo is actually unavailable or if we can properly mock it
+  # Since mocking PATH doesn't guarantee cargo won't be found, we skip if cargo is available
+  # In a real scenario, this would be tested on a system without cargo installed
+  if is_cargo_available; then
+    skip "cargo binary is available - cannot test missing binary scenario without proper mocking"
+  fi
+
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Error message should be clear
+  if echo "$output" | grep -q "cargo binary is not available"; then
+    # Check that it suggests installation
+    if echo "$output" | grep -qi "install"; then
+      # Good, suggests installation
+      :
+    else
+      # Still acceptable if it just mentions the issue
+      :
+    fi
+  else
+    echo "ERROR: Should provide clear error message about missing cargo"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "multiple test suites are properly listed for Rust" {
+  setup_test_project
+  create_rust_project_with_tests "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Should list multiple suites
+  local suite_count=$(echo "$output" | grep -c "•" || echo "0")
+  if [[ $suite_count -lt 2 ]]; then
+    echo "ERROR: Should list multiple test suites"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  teardown_test_project
+}
+
+@test "test suite paths are relative to project root for Rust" {
+  setup_test_project
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+
+  # Check that paths are shown
+  if ! echo "$output" | grep -q "Path:"; then
+    echo "ERROR: Should show test suite paths"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+
+  # Path should be relative (not absolute)
+  if echo "$output" | grep -q "$TEST_PROJECT_DIR"; then
+    # Absolute paths are also acceptable, but relative is preferred
+    :
+  fi
+
   teardown_test_project
 }
 

@@ -251,3 +251,94 @@ restore_path() {
   fi
 }
 
+# ============================================================================
+# Rust-Specific Helper Functions
+# ============================================================================
+
+# Check if cargo binary is available
+is_cargo_available() {
+  command -v cargo >/dev/null 2>&1
+}
+
+# Count the number of #[test] annotations in a Rust test file
+count_rust_tests() {
+  local file="$1"
+  local count=0
+
+  # Verify file exists and is readable
+  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
+    echo "0"
+    return
+  fi
+
+  # Count lines that contain #[test] (allowing for whitespace)
+  # Read file directly line by line - most reliable method across all environments
+  count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Remove leading whitespace and check if line starts with #[test]
+    trimmed_line="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$trimmed_line" == '#[test]'* ]]; then
+      ((count++))
+    fi
+  done < "$file"
+
+  echo "$count"
+}
+
+# Update assert_scanner_output to support Rust framework
+assert_scanner_output() {
+  local output="$1"
+  local expected_framework="${2:-}"
+  local expected_suite_count="${3:-}"
+
+  # Check if output contains framework detection
+  if [[ -n "$expected_framework" ]]; then
+    local framework_message=""
+    case "$expected_framework" in
+      "bats")
+        framework_message="BATS framework detected"
+        ;;
+      "rust")
+        framework_message="Rust framework detected"
+        ;;
+      *)
+        framework_message="${expected_framework} framework detected"
+        ;;
+    esac
+
+    if ! echo "$output" | grep -q "$framework_message"; then
+      echo "ERROR: Expected $expected_framework framework detection in output"
+      echo "Output was:"
+      echo "$output"
+      return 1
+    fi
+  fi
+
+  # Check if output contains suite count
+  if [[ -n "$expected_suite_count" ]]; then
+    if ! echo "$output" | grep -q "Discovered $expected_suite_count test suite"; then
+      echo "ERROR: Expected $expected_suite_count test suite(s) in output"
+      echo "Output was:"
+      echo "$output"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+# Mock cargo binary availability by modifying PATH (similar to bats mocking)
+mock_cargo_unavailable() {
+  # Save original PATH
+  ORIGINAL_PATH="$PATH"
+
+  # Create a temporary directory and prepend it to PATH
+  # This directory will be checked first, and since it doesn't contain cargo,
+  # command -v should not find it (unless it's later in PATH)
+  MOCK_PATH_DIR=$(mktemp -d)
+  export PATH="$MOCK_PATH_DIR:$PATH"
+
+  # Note: This doesn't guarantee cargo won't be found if it exists elsewhere in PATH
+  # For a true mock, you'd need to remove all cargo from PATH or use a wrapper script
+}
+

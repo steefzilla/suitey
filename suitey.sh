@@ -282,6 +282,187 @@ discover_bats_suites() {
 }
 
 # ============================================================================
+# Rust Detection Functions
+# ============================================================================
+
+# Check if cargo binary is available
+check_cargo_binary() {
+  if command -v cargo >/dev/null 2>&1; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Check if a file is a Rust source file
+is_rust_file() {
+  local file="$1"
+
+  # Check file extension
+  if [[ "$file" == *.rs ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Count the number of #[test] annotations in a Rust file
+count_rust_tests() {
+  local file="$1"
+  local count=0
+
+  # Verify file exists and is readable
+  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
+    echo "0"
+    return
+  fi
+
+  # Count lines that contain #[test] (allowing for whitespace)
+  # Read file directly line by line - most reliable method across all environments
+  count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Remove leading whitespace and check if line starts with #[test]
+    trimmed_line="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$trimmed_line" == '#[test]'* ]]; then
+      ((count++))
+    fi
+  done < "$file"
+
+  echo "$count"
+}
+
+# Find all Rust test files in a directory
+find_rust_test_files() {
+  local dir="$1"
+  local files=()
+
+  if [[ ! -d "$dir" ]]; then
+    return 1
+  fi
+
+  # Use find to locate all .rs files
+  while IFS= read -r -d '' file; do
+    if is_rust_file "$file"; then
+      files+=("$file")
+    fi
+  done < <(find "$dir" -type f -name "*.rs" -print0 2>/dev/null || true)
+
+  printf '%s\n' "${files[@]}"
+}
+
+# Detect Rust framework in project
+detect_rust_framework() {
+  # Check for Cargo.toml in project root
+  if [[ ! -f "$PROJECT_ROOT/Cargo.toml" ]]; then
+    return 1
+  fi
+
+  # Check for Rust test files in src/ and tests/ directories
+  local src_dir="$PROJECT_ROOT/src"
+  local tests_dir="$PROJECT_ROOT/tests"
+
+  # Look for unit test files in src/ (files containing #[cfg(test)] mods)
+  local has_unit_tests=false
+  if [[ -d "$src_dir" ]]; then
+    local src_files
+    src_files=$(find_rust_test_files "$src_dir")
+    if [[ -n "$src_files" ]]; then
+      while IFS= read -r file; do
+        if [[ -n "$file" ]] && grep -q '#\[cfg(test)\]' "$file" 2>/dev/null; then
+          has_unit_tests=true
+          break
+        fi
+      done <<< "$src_files"
+    fi
+  fi
+
+  # Look for integration test files in tests/
+  local has_integration_tests=false
+  if [[ -d "$tests_dir" ]]; then
+    local integration_files
+    integration_files=$(find_rust_test_files "$tests_dir")
+    if [[ -n "$integration_files" ]]; then
+      has_integration_tests=true
+    fi
+  fi
+
+  # If we found Rust test files, Rust framework is detected
+  if [[ "$has_unit_tests" == true ]] || [[ "$has_integration_tests" == true ]]; then
+    DETECTED_FRAMEWORKS+=("rust")
+
+    # Check if cargo binary is available
+    if ! check_cargo_binary; then
+      SCAN_ERRORS+=("Rust framework detected but 'cargo' binary is not available. Install Rust to run tests.")
+    fi
+
+    return 0
+  fi
+
+  return 1
+}
+
+# Discover Rust test suites
+discover_rust_suites() {
+  local src_dir="$PROJECT_ROOT/src"
+  local tests_dir="$PROJECT_ROOT/tests"
+  local rust_files=()
+
+  # Discover unit tests in src/ directory
+  if [[ -d "$src_dir" ]]; then
+    local src_files
+    src_files=$(find_rust_test_files "$src_dir")
+    if [[ -n "$src_files" ]]; then
+      while IFS= read -r file; do
+        if [[ -n "$file" ]] && grep -q '#\[cfg(test)\]' "$file" 2>/dev/null; then
+          rust_files+=("$file")
+        fi
+      done <<< "$src_files"
+    fi
+  fi
+
+  # Discover integration tests in tests/ directory
+  if [[ -d "$tests_dir" ]]; then
+    local integration_files
+    integration_files=$(find_rust_test_files "$tests_dir")
+    if [[ -n "$integration_files" ]]; then
+      while IFS= read -r file; do
+        [[ -n "$file" ]] && rust_files+=("$file")
+      done <<< "$integration_files"
+    fi
+  fi
+
+  # Create test suite entries for each Rust test file
+  for file in "${rust_files[@]}"; do
+    local rel_path="${file#$PROJECT_ROOT/}"
+    # Ensure rel_path doesn't start with /
+    rel_path="${rel_path#/}"
+    local suite_name
+    local test_count
+
+    # Generate suite name from file path
+    # Remove .rs extension and replace / with -
+    suite_name="${rel_path%.rs}"
+    suite_name="${suite_name//\//-}"
+
+    # If suite name is empty, use filename
+    if [[ -z "$suite_name" ]]; then
+      suite_name=$(basename "$file" .rs)
+    fi
+
+    # Count tests in this Rust file
+    # Ensure we have an absolute path for reliable file access
+    local abs_file="$file"
+    if [[ "$abs_file" != /* ]]; then
+      abs_file="$(cd "$(dirname "$abs_file")" && pwd)/$(basename "$abs_file")"
+    fi
+    test_count=$(count_rust_tests "$abs_file")
+
+    # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
+    DISCOVERED_SUITES+=("rust|$suite_name|$file|$rel_path|$test_count")
+  done
+}
+
+# ============================================================================
 # Main Scanner Functions
 # ============================================================================
 
@@ -289,7 +470,7 @@ discover_bats_suites() {
 scan_project() {
   echo "Scanning project: $PROJECT_ROOT" >&2
   echo "" >&2
-  
+
   # Detect BATS framework
   if detect_bats_framework; then
     echo -e "${GREEN}✓${NC} BATS framework detected" >&2
@@ -297,7 +478,15 @@ scan_project() {
   else
     echo -e "${YELLOW}⚠${NC} No BATS framework detected" >&2
   fi
-  
+
+  # Detect Rust framework
+  if detect_rust_framework; then
+    echo -e "${GREEN}✓${NC} Rust framework detected" >&2
+    discover_rust_suites
+  else
+    echo -e "${YELLOW}⚠${NC} No Rust framework detected" >&2
+  fi
+
   echo "" >&2
 }
 
@@ -312,6 +501,7 @@ output_results() {
     echo "To use Suitey, ensure your project has:" >&2
     echo "  - Test files with .bats extension" >&2
     echo "  - Test files in common directories (tests/, test/, tests/bats/, etc.)" >&2
+    echo "  - Rust projects with Cargo.toml and test files in src/ or tests/ directories" >&2
     exit 2
   fi
   
