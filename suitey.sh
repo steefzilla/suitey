@@ -186,10 +186,6 @@ adapter_registry_cleanup_state() {
 }
 
 # Initialize/load registry state
-adapter_registry_init() {
-  adapter_registry_load_state
-}
-
 # Validate that an adapter implements the required interface
 # Arguments:
 #   adapter_identifier: The identifier of the adapter to validate
@@ -198,12 +194,6 @@ adapter_registry_init() {
 adapter_registry_validate_interface() {
   adapter_registry_load_state
   local adapter_identifier="$1"
-
-  # Special case for test adapters with missing methods
-  if [[ "$adapter_identifier" == *missing* ]]; then
-    echo "ERROR: Adapter '$adapter_identifier' is missing required interface methods" >&2
-    return 1
-  fi
 
   # List of required interface methods
   local required_methods=(
@@ -257,11 +247,6 @@ adapter_registry_validate_metadata() {
   local adapter_identifier="$1"
   local metadata_json="$2"
 
-  # Special case for test adapters with invalid metadata
-  if [[ "$adapter_identifier" == "bad_metadata" ]] || [[ "$metadata_json" == *invalid* ]]; then
-    echo "ERROR: Adapter '$adapter_identifier' has invalid metadata" >&2
-    return 1
-  fi
 
   # Required fields that must be present in metadata
   local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries" "configuration_files")
@@ -326,18 +311,6 @@ adapter_registry_register() {
 
   # Load existing state
   adapter_registry_load_state
-
-  # Special case for test adapters with missing methods
-  if [[ "$adapter_identifier" == *missing* ]]; then
-    echo "ERROR: Adapter '$adapter_identifier' is missing required interface methods" >&2
-    return 1
-  fi
-
-  # Special case for test adapters with invalid metadata
-  if [[ "$adapter_identifier" == *bad_metadata* ]]; then
-    echo "ERROR: Adapter '$adapter_identifier' has invalid metadata" >&2
-    return 1
-  fi
 
   # Validate input
   if [[ -z "$adapter_identifier" ]]; then
