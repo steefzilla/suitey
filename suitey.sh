@@ -766,24 +766,17 @@ scan_project() {
     done
   fi
 
-  local first_framework=true
   for framework in "${frameworks[@]}"; do
     case "$framework" in
       "bats")
         echo -e "${GREEN}✓${NC} BATS framework detected" >&2
         DETECTED_FRAMEWORKS+=("bats")
-        if [[ "$first_framework" == true ]]; then
-          discover_bats_suites
-          first_framework=false
-        fi
+        discover_bats_suites
         ;;
       "rust")
         echo -e "${GREEN}✓${NC} Rust framework detected" >&2
         DETECTED_FRAMEWORKS+=("rust")
-        if [[ "$first_framework" == true ]]; then
-          discover_rust_suites
-          first_framework=false
-        fi
+        discover_rust_suites
         ;;
       *)
         # Unknown framework detected - skip for backward compatibility

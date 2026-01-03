@@ -71,18 +71,30 @@ Several tools address parts of Suitey's functionality, but none provide the comp
 
 ## Core Functionality
 
-1. **Universal Test Discovery**
-   - Automatically discovers test suites by examining project structure and common test directories
-   - Detects test framework type (Jest, pytest, Go, Rust, Maven, Gradle, etc.) through heuristics:
+The core functionality follows a clear workflow: **Framework Detection** → **Test Suite Discovery** → **Build System Detection** → **Execution**.
+
+1. **Framework Detection & Adapter System**
+   - Automatically detects which test frameworks are present in the project using framework adapters
+   - Each framework adapter implements detection logic using heuristics:
      - Package manager files (`package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, etc.)
+     - Framework-specific configuration files (`jest.config.js`, `pytest.ini`, `Cargo.toml`, etc.)
+     - Directory structure patterns and file extensions
+   - Verifies that required framework tools are available (e.g., `bats`, `cargo`, `npm`)
+   - Returns a list of detected frameworks with metadata for downstream use
+   - Falls back gracefully if framework-specific tools are not available
+
+2. **Test Suite Discovery**
+   - After frameworks are detected, discovers test files and groups them into test suites
+   - Uses framework adapters to find test files through framework-specific heuristics:
      - Test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
      - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
+     - Framework-specific patterns (e.g., `#[cfg(test)]` for Rust, `@test` for BATS)
    - Each test suite is identifiable as a distinct unit (by framework, directory, or file)
    - Framework-agnostic: works with JavaScript/TypeScript, Python, Go, Rust, Java, Ruby, and more
 
-1. **Build Detection & Automation**
+3. **Build System Detection & Automation**
    - Automatically detects if a project requires building before tests can run
-   - Detects build systems through heuristics:
+   - Uses framework adapters to determine build requirements per framework:
      - Build configuration files (`Makefile`, `CMakeLists.txt`, `Dockerfile`, `docker-compose.yml`, etc.)
      - Package manager build scripts (`package.json` scripts, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, etc.)
      - Source code patterns indicating compilation needs (TypeScript, compiled languages, etc.)
@@ -91,9 +103,8 @@ Several tools address parts of Suitey's functionality, but none provide the comp
    - Build steps run in parallel when multiple independent builds are detected
    - Build failures are reported clearly and prevent test execution
 
-1. **Framework Detection & Adapter System**
-   - Automatically detects which test frameworks are present in the project
-   - Uses appropriate test runners for each framework:
+4. **Test Execution**
+   - Uses framework adapters to execute tests with appropriate test runners:
      - JavaScript/TypeScript: `npm test`, `yarn test`, `pnpm test`, `jest`, `mocha`, `vitest`, etc.
      - Python: `pytest`, `unittest`, `nose2`, etc.
      - Go: `go test` (may include build step)
@@ -101,20 +112,19 @@ Several tools address parts of Suitey's functionality, but none provide the comp
      - Java: `mvn test`, `gradle test` (includes compile step)
      - Ruby: `rspec`, `minitest`
      - And more as needed
-   - Falls back gracefully if framework-specific tools are not available
 
-1. **Parallel Execution**
+5. **Parallel Execution**
    - Runs all discovered test suites in parallel by default
    - Manages concurrent execution of multiple test processes
    - Handles process lifecycle and cleanup
    - Limits number of processes by number of CPU cores available
    - Each suite runs in isolation (native process or Docker container as appropriate)
 
-1. **Single Suite Execution**
+6. **Single Suite Execution**
    - Option to run a single test suite
    - Validates that the specified suite exists before execution
 
-1. **Output Modes**
+7. **Output Modes**
 
    Both modes use the same execution engine and structured data collection. The difference is only in how results are presented.
 
@@ -138,7 +148,7 @@ Several tools address parts of Suitey's functionality, but none provide the comp
    - Output is interleaved as test suites run in parallel (includes suite identification prefixes)
    - Interleaving is buffered by test suite and only output when a block is detected, with a fallback to output a whole buffer every 100ms. This is done to improve readability.
 
-1. **Report Generation & Local Hosting**
+8. **Report Generation & Local Hosting**
    - After test execution completes, automatically generates a comprehensive HTML report
    - Report includes:
      - Summary statistics (total tests, passed, failed, duration)
@@ -164,11 +174,11 @@ Suitey follows a **single-process architecture** with framework detection and ad
 ┌─────────────────────────────────────┐
 │         suitey (main process)       │
 ├─────────────────────────────────────┤
-│  Project Scanner                    │
-│  Framework Detector                 |
-│  Test Suite Discovery               │
-|  Build System Detector              │
-│  Adapter Registry                   │
+│  Project Scanner (Orchestrator)     │
+│  ├─ Framework Detector              │
+│  │  └─ Adapter Registry             │
+│  ├─ Test Suite Discovery            │
+│  └─ Build System Detector           │
 │  Build Manager                      │
 │  Parallel Execution Manager         │
 │  Result Collector (structured data) │
@@ -181,6 +191,41 @@ Suitey follows a **single-process architecture** with framework detection and ad
 └─────────────────────────────────────┘
 ```
 
+### Component Relationships
+
+The architecture follows a hierarchical orchestration pattern:
+
+1. **Project Scanner** is the primary orchestrator component responsible for:
+   - Coordinating overall project analysis
+   - Calling Framework Detector to identify test frameworks
+   - Performing Test Suite Discovery to find and group test files
+   - Performing Build System Detection to identify build requirements
+   - Aggregating results from all sub-components
+
+2. **Framework Detector** is a specialized component called by Project Scanner:
+   - Identifies which test frameworks are present in the project
+   - Uses the Adapter Registry to access framework-specific detection logic
+   - Returns framework detection results to Project Scanner
+   - Framework detection results inform both Test Suite Discovery and Build System Detection
+
+3. **Adapter Registry** is a shared component:
+   - Maintains a registry of framework adapters (BATS, Rust, Jest, pytest, etc.)
+   - Provides framework-specific detection, discovery, and execution logic
+   - Used by Framework Detector to coordinate adapter-based detection
+   - Each adapter implements detection, discovery, build detection, and execution methods
+
+4. **Test Suite Discovery** is a component orchestrated by Project Scanner:
+   - Operates after Framework Detector has identified available frameworks
+   - Uses framework adapters (via Adapter Registry) to find test files using framework-specific patterns
+   - Groups test files into distinct test suites
+   - Returns discovered test suites with metadata to Project Scanner
+
+5. **Build System Detector** is a responsibility of Project Scanner:
+   - Identifies if and how the project needs to be built before testing
+   - Uses framework adapters to determine build requirements per framework
+   - May use Framework Detector results to inform build detection
+   - Returns build requirements to Project Scanner for coordination with Build Manager
+
 ### Key Architectural Principles
 
 1. **Single Process**: The main suitey process directly manages all test execution.
@@ -189,11 +234,7 @@ Suitey follows a **single-process architecture** with framework detection and ad
 
 3. **Framework-Agnostic**: Suitey doesn't depend on any specific test framework. It detects what's available and uses the appropriate tools.
 
-4. **Adapter Pattern**: Each test framework is supported through an adapter that knows how to:
-   - Detect if the framework is present
-   - Determine which test files/suites to run
-   - Execute tests using the framework's native tools
-   - Parse output to extract test results
+4. **Adapter Pattern**: Framework adapters provide a consistent interface for framework-specific operations (detection, discovery, build detection, execution, and parsing). This enables Suitey to work with any test framework without hardcoding framework-specific logic. See Framework Adapters in Technical Considerations for details.
 
 5. **Graceful Degradation**: If a framework's tools aren't available, Suitey skips that framework and continues with others.
 
@@ -225,58 +266,30 @@ Suitey follows a **single-process architecture** with framework detection and ad
 
 ## Technical Considerations
 
-### Test Suite Detection
+### Execution Workflow
 
-- The tool scans project directories to identify test suites using multiple heuristics:
-  - Package manager files indicating project type
-  - Common test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
-  - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
-  - Framework-specific configuration files (e.g., `jest.config.js`, `pytest.ini`, `Cargo.toml`)
-- Framework adapters handle framework-specific discovery logic
-- Discovery is file-based and framework-aware; each adapter knows how to identify test files for its framework
+The execution follows a sequential workflow orchestrated by Project Scanner:
 
-### Build Model
+1. **Framework Detection Phase**: Project Scanner calls Framework Detector, which uses the Adapter Registry to identify which test frameworks are present in the project. Each adapter implements framework-specific detection logic using heuristics (package manager files, configuration files, directory patterns, etc.).
 
-- Build steps are automatically detected and executed before test runs when needed
-- Each framework adapter determines if building is required and how to build:
-  - TypeScript/JavaScript: `npm run build`, `yarn build`, `tsc`, etc.
-  - Go: `go build` (often implicit in `go test`)
-  - Rust: `cargo build` (often implicit in `cargo test`)
-  - Java: `mvn compile`, `gradle build`
-  - C/C++: `make`, `cmake`, custom build scripts
-  - And more as needed
-- Builds execute in Docker containers to ensure:
-  - Consistent build environments across platforms
-  - Proper dependency isolation
-  - Reproducible builds
-- Build artifacts are stored in volumes and made available to test containers
-- Build failures are reported immediately and prevent test execution
-- Build steps can run in parallel when multiple independent builds are detected
+2. **Test Suite Discovery Phase**: For each detected framework, Project Scanner uses the framework's adapter to discover test files. Each adapter knows how to find test files for its framework using framework-specific patterns (directory structures, file naming conventions, etc.). Test files are grouped into distinct test suites.
 
-### Execution Model
+3. **Build System Detection Phase**: Project Scanner uses framework adapters to determine if building is required before testing. Each adapter implements build detection logic and specifies build commands if needed. Build requirements are determined per framework.
 
-- Test suites run in Docker containers using their native test runners (e.g., `npm test`, `pytest`, `go test`)
-- Each framework adapter determines the execution method:
-  - Docker container execution (standard approach)
-  - docker-compose orchestration (for complex multi-service tests)
-  - Custom execution scripts (when needed)
-- Execution returns structured data:
-  - Exit code (from test runner)
-  - Test counts (total, passed, failed) - extracted from test framework output
-  - Execution time
-  - Output stream (stdout/stderr captured from container)
-- Results are collected as tests execute, not after completion
-- Framework-specific tools are detected at runtime within containers; missing tools result in skipped frameworks with clear error messages
+4. **Build Phase** (if needed): Build steps execute in Docker containers to ensure consistent, isolated environments. Build artifacts are stored in volumes and made available to test containers. Build steps can run in parallel when multiple independent builds are detected.
+
+5. **Execution Phase**: Test suites run in Docker containers using their native test runners. Each framework adapter determines the execution method (Docker container, docker-compose orchestration, etc.) and parses output to extract structured results.
 
 ### Framework Adapters
 
-Each framework adapter implements:
-- **Detection**: How to determine if this framework is present in the project
-- **Build Detection**: Whether this project requires building before testing
-- **Build Steps**: How to build the project (if needed) in a containerized environment
-- **Discovery**: How to find test files/suites for this framework
-- **Execution**: How to run tests using the framework's tools in containers
-- **Parsing**: How to extract test results from framework output
+Framework adapters are the core abstraction that enables framework-agnostic test execution. Each adapter implements a consistent interface:
+
+- **Detection**: Determines if this framework is present in the project using framework-specific heuristics
+- **Discovery**: Finds test files/suites for this framework using framework-specific patterns
+- **Build Detection**: Determines if building is required before testing
+- **Build Steps**: Specifies how to build the project (if needed) in a containerized environment
+- **Execution**: Runs tests using the framework's native tools in containers
+- **Parsing**: Extracts test results (counts, status, output) from framework output
 
 Supported frameworks (examples, expandable):
 - JavaScript/TypeScript: Jest, Mocha, Vitest, Jasmine, etc.
@@ -285,7 +298,23 @@ Supported frameworks (examples, expandable):
 - Rust: cargo test
 - Java: JUnit (via Maven/Gradle)
 - Ruby: RSpec, Minitest
+- Bash/Shell: BATS
 - And more as needed
+
+### Containerized Execution
+
+- Test suites run in Docker containers using their native test runners (e.g., `npm test`, `pytest`, `go test`)
+- Builds execute in Docker containers to ensure:
+  - Consistent build environments across platforms
+  - Proper dependency isolation
+  - Reproducible builds
+- Execution returns structured data:
+  - Exit code (from test runner)
+  - Test counts (total, passed, failed) - extracted from test framework output
+  - Execution time
+  - Output stream (stdout/stderr captured from container)
+- Results are collected as tests execute, not after completion
+- Framework-specific tools are detected at runtime within containers; missing tools result in skipped frameworks with clear error messages
 
 ### Error Handling
 
@@ -351,7 +380,7 @@ Each test suite writes its results to temporary files in a dedicated temp direct
 
 #### Data Extraction
 
-Test counts are extracted by parsing test framework output for standard patterns (e.g., "✓ 5 passed, ✗ 2 failed", "Tests: 10 passed, 2 failed"). Each framework adapter may implement framework-specific parsing logic. Exit codes determine overall pass/fail status. Supports multiple test frameworks with different output formats.
+Each framework adapter implements parsing logic to extract test results from framework output. Test counts are extracted by parsing framework-specific output patterns (e.g., "✓ 5 passed, ✗ 2 failed", "Tests: 10 passed, 2 failed"). Exit codes determine overall pass/fail status. This adapter-based parsing approach supports multiple test frameworks with different output formats.
 
 ### Report Generation & Hosting
 
@@ -386,10 +415,8 @@ Reports are generated as standalone HTML files with embedded CSS and JavaScript 
 ### Parallel Execution Pattern
 
 1. **Initialization**: 
-   - Scan project directory for framework and build system indicators
-   - Detect available frameworks using adapter registry
-   - Detect build requirements for each framework
    - Create a temporary directory for storing results and build artifacts using cross-platform temp directory APIs and register cleanup on exit
+   - Project Scanner orchestrates Framework Detection, Test Suite Discovery, and Build System Detection (see Technical Considerations above)
 
 2. **Build Phase**:
    - For each framework that requires building:

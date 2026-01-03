@@ -955,3 +955,106 @@ EOF
   teardown_test_project
 }
 
+@test "test suite discovery runs for all detected frameworks, not just first" {
+  setup_test_project
+  
+  # Create a project with both BATS and Rust frameworks
+  mkdir -p "$TEST_PROJECT_DIR"
+  
+  # Add BATS framework with test file
+  mkdir -p "$TEST_PROJECT_DIR/tests/bats"
+  cat > "$TEST_PROJECT_DIR/tests/bats/multi.bats" << 'EOF'
+#!/usr/bin/env bats
+
+@test "multi framework BATS test" {
+  [ true ]
+}
+EOF
+  chmod +x "$TEST_PROJECT_DIR/tests/bats/multi.bats"
+  
+  # Add Rust framework with test file
+  cat > "$TEST_PROJECT_DIR/Cargo.toml" << 'EOF'
+[package]
+name = "multi_project"
+version = "0.1.0"
+edition = "2021"
+EOF
+  
+  mkdir -p "$TEST_PROJECT_DIR/src"
+  cat > "$TEST_PROJECT_DIR/src/lib.rs" << 'EOF'
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn multi_test() {
+        assert_eq!(2 + 2, 4);
+    }
+}
+EOF
+  
+  output=$(run_scanner "$TEST_PROJECT_DIR")
+  
+  # Verify both frameworks are detected
+  if ! echo "$output" | grep -q "BATS framework detected"; then
+    echo "ERROR: Should detect BATS framework"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  if ! echo "$output" | grep -q "Rust framework detected"; then
+    echo "ERROR: Should detect Rust framework"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  # Verify test suites are discovered for BATS (should find multi.bats)
+  # The suite name format is typically: framework|suite_name|file_path|rel_path|test_count
+  # In output it shows as: • suite-name - framework
+  if ! echo "$output" | grep -qE "•.*multi.*-.*bats|•.*multi.*bats"; then
+    echo "ERROR: Should discover BATS test suite (multi.bats)"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  # Verify test suites are discovered for Rust (should find lib.rs with tests)
+  if ! echo "$output" | grep -qE "•.*lib.*-.*rust|•.*lib.*rust|•.*src.*rust"; then
+    echo "ERROR: Should discover Rust test suite (lib.rs with #[cfg(test)])"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  # Verify total suite count includes both frameworks
+  # Should have at least 2 suites (one BATS, one Rust)
+  local suite_count=$(echo "$output" | grep -c "•" || echo "0")
+  if [[ $suite_count -lt 2 ]]; then
+    echo "ERROR: Should discover test suites for both frameworks (expected at least 2, found $suite_count)"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  # Verify the output mentions both framework types in the suite list
+  # Count occurrences of "bats" and "rust" in the suite listing section
+  local bats_in_suites=$(echo "$output" | grep -A 100 "Test Suites:" | grep -c "bats" || echo "0")
+  local rust_in_suites=$(echo "$output" | grep -A 100 "Test Suites:" | grep -c "rust" || echo "0")
+  
+  if [[ $bats_in_suites -eq 0 ]]; then
+    echo "ERROR: Should list at least one BATS test suite in Test Suites section"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  if [[ $rust_in_suites -eq 0 ]]; then
+    echo "ERROR: Should list at least one Rust test suite in Test Suites section"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  teardown_test_project
+}
+

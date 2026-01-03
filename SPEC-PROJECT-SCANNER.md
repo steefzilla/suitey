@@ -2,16 +2,17 @@
 
 ## Overview
 
-The Project Scanner is a core component of Suitey responsible for automatically discovering test suites, detecting test frameworks, and identifying build requirements in any project directory. It operates through a combination of heuristics, file system scanning, and framework-specific detection logic to provide zero-configuration test discovery.
+The Project Scanner is the primary orchestrator component of Suitey responsible for coordinating project analysis, test suite discovery, and build requirement identification. It orchestrates the workflow: **Framework Detection** → **Test Suite Discovery** → **Build System Detection**. It operates through a combination of heuristics, file system scanning, and coordination with specialized components (Framework Detector, Test Suite Discovery, Build System Detector) to provide zero-configuration test discovery.
 
 ## Responsibilities
 
 The Project Scanner is responsible for:
 
-1. **Test Suite Discovery**: Identifying all test files and test suites in the project
-2. **Framework Detection**: Determining which test frameworks are present and available
-3. **Build System Detection**: Identifying if and how the project needs to be built before testing
-4. **Project Structure Analysis**: Understanding the project's organization and test layout
+1. **Orchestration**: Coordinating the overall project analysis workflow
+2. **Framework Detection Coordination**: Calling Framework Detector to identify which test frameworks are present
+3. **Test Suite Discovery**: Orchestrating Test Suite Discovery to find and group test files after frameworks are detected
+4. **Build System Detection**: Identifying if and how the project needs to be built before testing
+5. **Result Aggregation**: Aggregating results from all sub-components into a unified output
 
 ## Architecture Position
 
@@ -21,72 +22,45 @@ The Project Scanner operates as part of the main suitey process:
 ┌─────────────────────────────────────┐
 │         suitey (main process)       │
 ├─────────────────────────────────────┤
-│  Project Scanner                    │ ← This component
-│  Framework Detector                 │
-│  Test Suite Discovery               │
-│  Build System Detector              │
-│  Adapter Registry                   │
+│  Project Scanner (Orchestrator)     │ ← This component
+│  ├─ Framework Detector             │
+│  │  └─ Adapter Registry            │
+│  ├─ Test Suite Discovery           │
+│  └─ Build System Detector           │
 │  ...                                │
 └─────────────────────────────────────┘
 ```
 
 ## Test Suite Discovery
 
-### Heuristics
-
-The scanner uses multiple heuristics to identify test suites:
-
-#### 1. Package Manager Files
-
-Detects project type through package manager configuration files:
-- `package.json` - JavaScript/TypeScript (Node.js)
-- `Cargo.toml` - Rust
-- `go.mod` - Go
-- `pom.xml` - Java (Maven)
-- `build.gradle` - Java (Gradle)
-- `requirements.txt`, `setup.py`, `pyproject.toml` - Python
-- `Gemfile` - Ruby
-- And more as needed
-
-#### 2. Test Directory Patterns
-
-Scans for common test directory patterns:
-- `./test/`
-- `./tests/`
-- `./__tests__/`
-- `./spec/`
-- `./specs/`
-- Framework-specific patterns (e.g., `./src/test/` for Java, `./tests/bats/` for BATS)
-
-#### 3. File Naming Patterns
-
-Identifies test files through naming conventions:
-- `test_*.*` (e.g., `test_user.py`, `test_utils.js`)
-- `*_test.*` (e.g., `user_test.go`, `utils_test.rs`)
-- `*_spec.*` (e.g., `user_spec.rb`, `utils_spec.js`)
-- `*-test.*` (e.g., `user-test.ts`)
-- `*-spec.*` (e.g., `utils-spec.js`)
-- `*.bats` - BATS test files (e.g., `suitey.bats`, `utils.bats`)
-
-#### 4. Framework-Specific Configuration Files
-
-Detects framework presence through configuration files:
-- `jest.config.js`, `jest.config.ts` - Jest
-- `pytest.ini`, `setup.cfg`, `pyproject.toml` - pytest
-- `vitest.config.*` - Vitest
-- `mocha.opts`, `.mocharc.*` - Mocha
-- `tsconfig.json` - TypeScript projects
-- `.bats` file extension - BATS (Bash Automated Testing System)
-- `bats` binary presence - BATS framework availability
-- And more as needed
+Test Suite Discovery is orchestrated by Project Scanner and operates **after** Framework Detector has identified which test frameworks are present in the project. It uses framework adapters to find test files using framework-specific patterns.
 
 ### Discovery Process
 
-1. **Initial Scan**: Walk the project directory structure
-2. **Pattern Matching**: Apply naming and directory pattern heuristics
-3. **Framework Detection**: Identify which frameworks are present
-4. **Adapter-Based Discovery**: Use framework adapters for framework-specific discovery logic
-5. **Suite Identification**: Group test files into distinct test suites (by framework, directory, or file)
+The discovery process follows this workflow:
+
+1. **Framework Detection Phase** (performed by Framework Detector):
+   - Project Scanner calls Framework Detector to identify which test frameworks are present
+   - Framework Detector uses the Adapter Registry to detect frameworks
+   - Returns list of detected frameworks with metadata
+
+2. **Test Suite Discovery Phase** (orchestrated by Project Scanner):
+   - For each detected framework, Project Scanner uses the framework's adapter to discover test files
+   - Each adapter implements framework-specific discovery logic using:
+     - Test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
+     - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
+     - Framework-specific patterns (e.g., `#[cfg(test)]` for Rust, `@test` for BATS)
+   - Test files are grouped into distinct test suites (by framework, directory, or file)
+
+### Framework-Specific Discovery
+
+Each framework adapter implements discovery logic specific to its framework:
+
+- **BATS**: Discovers `.bats` files in common test directories (`./tests/bats/`, `./test/bats/`, etc.)
+- **Rust**: Discovers unit tests in `src/` (files with `#[cfg(test)]`) and integration tests in `tests/`
+- **JavaScript/TypeScript**: Discovers test files using framework-specific patterns (Jest, Mocha, Vitest, etc.)
+- **Python**: Discovers test files using pytest/unittest patterns
+- And more as needed
 
 ### Framework-Agnostic Approach
 
@@ -100,33 +74,20 @@ The scanner works across multiple languages and frameworks:
 - Bash/Shell (BATS - Bash Automated Testing System)
 - And more as needed
 
-## Framework Detection
+## Framework Detection Coordination
 
-### Detection Strategy
+Project Scanner orchestrates Framework Detection by calling the Framework Detector component. Framework Detection happens **before** Test Suite Discovery, as the discovered frameworks inform which adapters to use for test file discovery.
 
-The scanner automatically detects which test frameworks are present through:
+### Workflow
 
-1. **Configuration File Presence**: Framework-specific config files indicate framework usage
-2. **Package Dependencies**: Package manager files list framework dependencies
-3. **Directory Structure**: Framework-specific directory layouts
-4. **File Extensions**: Framework-specific file extensions (e.g., `.bats` for BATS)
-5. **Binary Availability**: Presence of framework executables (e.g., `bats` command for BATS)
-6. **Adapter Registry**: Each framework adapter implements detection logic
+1. **Project Scanner calls Framework Detector**: Framework Detector uses the Adapter Registry to identify which test frameworks are present in the project
+2. **Framework Detector returns results**: Returns list of detected frameworks with metadata (confidence levels, binary availability, etc.)
+3. **Project Scanner uses results**: The detected frameworks inform:
+   - Which adapters to use for Test Suite Discovery
+   - Which adapters to use for Build System Detection
+   - Framework-specific metadata needed for execution
 
-### Adapter-Based Detection
-
-Each framework adapter implements:
-- **Detection Logic**: How to determine if this framework is present
-- **Discovery Logic**: How to find test files/suites for this framework
-- **Build Detection**: Whether this project requires building before testing
-- **Build Steps**: How to build the project (if needed)
-- **Execution Method**: How to run tests using the framework's tools
-
-### Graceful Degradation
-
-- If a framework's tools aren't available, the scanner skips that framework
-- Continues detection with other available frameworks
-- Provides clear error messages indicating which frameworks were detected and which were skipped
+For detailed information about Framework Detection, see the Framework Detector Specification.
 
 ## Build System Detection
 
@@ -172,25 +133,36 @@ The scanner detects build requirements through:
 
 ## Integration with Adapter System
 
-The Project Scanner works in conjunction with the Framework Adapter System:
+The Project Scanner works in conjunction with the Framework Adapter System through the following workflow:
 
-1. **Initial Detection**: Scanner identifies potential frameworks through heuristics
-2. **Adapter Registration**: Detected frameworks are registered with the adapter registry
-3. **Adapter-Specific Discovery**: Each adapter performs framework-specific discovery
-4. **Result Aggregation**: Scanner aggregates results from all adapters into unified test suite list
+1. **Framework Detection**: Project Scanner calls Framework Detector, which uses the Adapter Registry to identify which frameworks are present
+2. **Test Suite Discovery**: For each detected framework, Project Scanner uses the framework's adapter to discover test files using framework-specific patterns
+3. **Build System Detection**: Project Scanner uses framework adapters to determine build requirements per framework
+4. **Result Aggregation**: Project Scanner aggregates results from all phases (framework detection, test suite discovery, build detection) into a unified output
+
+The Adapter Registry provides a consistent interface for all framework-specific operations (detection, discovery, build detection, execution, and parsing).
 
 ## Output
 
-The Project Scanner produces:
+The Project Scanner produces aggregated results from all orchestrated components:
 
-1. **Detected Frameworks**: List of frameworks found in the project
-2. **Test Suites**: Collection of discovered test suites with metadata:
-   - Suite name/identifier
-   - Framework type
-   - Test files included
-   - Build requirements (if any)
-   - Execution metadata
-3. **Build Requirements**: List of build steps needed before testing
+1. **Detected Frameworks** (from Framework Detector):
+   - List of frameworks found in the project
+   - Framework metadata (confidence levels, binary availability, etc.)
+
+2. **Test Suites** (from Test Suite Discovery):
+   - Collection of discovered test suites with metadata:
+     - Suite name/identifier
+     - Framework type
+     - Test files included
+     - Test counts
+     - Execution metadata
+
+3. **Build Requirements** (from Build System Detector):
+   - List of build steps needed before testing
+   - Build commands per framework
+   - Build dependencies
+
 4. **Project Structure**: Understanding of project organization
 
 ## Error Handling
