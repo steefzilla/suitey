@@ -26,16 +26,98 @@ DISCOVERED_SUITES=()
 SCAN_ERRORS=()
 
 # ============================================================================
+# Common Helper Functions
+# ============================================================================
+
+# Check if a command binary is available
+check_binary() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1
+}
+
+# Normalize a file path to absolute path
+normalize_path() {
+  local file="$1"
+  if command -v readlink >/dev/null 2>&1; then
+    readlink -f "$file" 2>/dev/null || realpath "$file" 2>/dev/null || echo "$file"
+  elif command -v realpath >/dev/null 2>&1; then
+    realpath "$file" 2>/dev/null || echo "$file"
+  else
+    echo "$file"
+  fi
+}
+
+# Check if a file is already in the seen_files array
+is_file_seen() {
+  local file="$1"
+  shift
+  local seen_files=("$@")
+  local normalized_file
+  normalized_file=$(normalize_path "$file")
+  
+  for seen in "${seen_files[@]}"; do
+    if [[ "$seen" == "$normalized_file" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Generate suite name from file path
+generate_suite_name() {
+  local file="$1"
+  local extension="$2"
+  local rel_path="${file#$PROJECT_ROOT/}"
+  rel_path="${rel_path#/}"
+  
+  local suite_name="${rel_path%.${extension}}"
+  suite_name="${suite_name//\//-}"
+  
+  if [[ -z "$suite_name" ]]; then
+    suite_name=$(basename "$file" ".${extension}")
+  fi
+  
+  echo "$suite_name"
+}
+
+# Get absolute path for a file
+get_absolute_path() {
+  local file="$1"
+  if [[ "$file" != /* ]]; then
+    echo "$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+  else
+    echo "$file"
+  fi
+}
+
+# Count test annotations in a file
+count_tests_in_file() {
+  local file="$1"
+  local pattern="$2"
+  local count=0
+  
+  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
+    echo "0"
+    return
+  fi
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    trimmed_line="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$trimmed_line" == "$pattern"* ]]; then
+      ((count++))
+    fi
+  done < "$file"
+  
+  echo "$count"
+}
+
+# ============================================================================
 # BATS Detection Functions
 # ============================================================================
 
 # Check if bats binary is available
 check_bats_binary() {
-  if command -v bats >/dev/null 2>&1; then
-    return 0
-  else
-    return 1
-  fi
+  check_binary "bats"
 }
 
 # Check if a file is a BATS test file
@@ -62,26 +144,7 @@ is_bats_file() {
 # Count the number of @test annotations in a BATS file
 count_bats_tests() {
   local file="$1"
-  local count=0
-  
-  # Verify file exists and is readable
-  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
-    echo "0"
-    return
-  fi
-  
-  # Count lines that start with @test (allowing for whitespace)
-  # Read file directly line by line - most reliable method across all environments
-  count=0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # Remove leading whitespace and check if line starts with @test
-    trimmed_line="${line#"${line%%[![:space:]]*}"}"
-    if [[ "$trimmed_line" == @test* ]]; then
-      ((count++))
-    fi
-  done < "$file"
-  
-  echo "$count"
+  count_tests_in_file "$file" "@test"
 }
 
 # Find all .bats files in a directory (recursively)
@@ -93,7 +156,6 @@ find_bats_files() {
     return 1
   fi
   
-  # Use find to locate all .bats files
   while IFS= read -r -d '' file; do
     if is_bats_file "$file"; then
       files+=("$file")
@@ -168,36 +230,15 @@ discover_bats_suites() {
   )
   
   # Scan for .bats files in common directories
-  # Use a more specific approach: only scan each directory once, and avoid duplicates
   for dir in "${test_dirs[@]}"; do
     if [[ -d "$dir" ]]; then
       local found_files
       found_files=$(find_bats_files "$dir")
       if [[ -n "$found_files" ]]; then
         while IFS= read -r file; do
-          if [[ -n "$file" ]]; then
-            # Check if we've already seen this file (normalize path)
-            local normalized_file
-            # Try to get absolute path, fallback to original if not available
-            if command -v readlink >/dev/null 2>&1; then
-              normalized_file=$(readlink -f "$file" 2>/dev/null || realpath "$file" 2>/dev/null || echo "$file")
-            elif command -v realpath >/dev/null 2>&1; then
-              normalized_file=$(realpath "$file" 2>/dev/null || echo "$file")
-            else
-              normalized_file="$file"
-            fi
-            local is_duplicate=0
-            for seen in "${seen_files[@]}"; do
-              if [[ "$seen" == "$normalized_file" ]]; then
-                is_duplicate=1
-                break
-              fi
-            done
-            
-            if [[ $is_duplicate -eq 0 ]]; then
-              bats_files+=("$file")
-              seen_files+=("$normalized_file")
-            fi
+          if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+            bats_files+=("$file")
+            seen_files+=("$(normalize_path "$file")")
           fi
         done <<< "$found_files"
       fi
@@ -219,28 +260,9 @@ discover_bats_suites() {
           fi
         done
         
-        if [[ $skip -eq 0 ]]; then
-          local normalized_file
-          # Try to get absolute path, fallback to original if not available
-          if command -v readlink >/dev/null 2>&1; then
-            normalized_file=$(readlink -f "$file" 2>/dev/null || realpath "$file" 2>/dev/null || echo "$file")
-          elif command -v realpath >/dev/null 2>&1; then
-            normalized_file=$(realpath "$file" 2>/dev/null || echo "$file")
-          else
-            normalized_file="$file"
-          fi
-          local is_duplicate=0
-          for seen in "${seen_files[@]}"; do
-            if [[ "$seen" == "$normalized_file" ]]; then
-              is_duplicate=1
-              break
-            fi
-          done
-          
-          if [[ $is_duplicate -eq 0 ]]; then
-            bats_files+=("$file")
-            seen_files+=("$normalized_file")
-          fi
+        if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+          bats_files+=("$file")
+          seen_files+=("$(normalize_path "$file")")
         fi
       fi
     done <<< "$root_files"
@@ -249,28 +271,12 @@ discover_bats_suites() {
   # Create test suite entries for each .bats file
   for file in "${bats_files[@]}"; do
     local rel_path="${file#$PROJECT_ROOT/}"
-    # Ensure rel_path doesn't start with /
     rel_path="${rel_path#/}"
     local suite_name
     local test_count
     
-    # Generate suite name from file path
-    # Remove .bats extension and replace / with -
-    suite_name="${rel_path%.bats}"
-    suite_name="${suite_name//\//-}"
-    
-    # If suite name is empty, use filename
-    if [[ -z "$suite_name" ]]; then
-      suite_name=$(basename "$file" .bats)
-    fi
-    
-    # Count tests in this BATS file
-    # Ensure we have an absolute path for reliable file access
-    local abs_file="$file"
-    if [[ "$abs_file" != /* ]]; then
-      abs_file="$(cd "$(dirname "$abs_file")" && pwd)/$(basename "$abs_file")"
-    fi
-    test_count=$(count_bats_tests "$abs_file")
+    suite_name=$(generate_suite_name "$file" "bats")
+    test_count=$(count_bats_tests "$(get_absolute_path "$file")")
     
     # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
     DISCOVERED_SUITES+=("bats|$suite_name|$file|$rel_path|$test_count")
@@ -283,11 +289,7 @@ discover_bats_suites() {
 
 # Check if cargo binary is available
 check_cargo_binary() {
-  if command -v cargo >/dev/null 2>&1; then
-    return 0
-  else
-    return 1
-  fi
+  check_binary "cargo"
 }
 
 # Check if a file is a Rust source file
@@ -305,26 +307,7 @@ is_rust_file() {
 # Count the number of #[test] annotations in a Rust file
 count_rust_tests() {
   local file="$1"
-  local count=0
-
-  # Verify file exists and is readable
-  if [[ ! -f "$file" ]] || [[ ! -r "$file" ]]; then
-    echo "0"
-    return
-  fi
-
-  # Count lines that contain #[test] (allowing for whitespace)
-  # Read file directly line by line - most reliable method across all environments
-  count=0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # Remove leading whitespace and check if line starts with #[test]
-    trimmed_line="${line#"${line%%[![:space:]]*}"}"
-    if [[ "$trimmed_line" == '#[test]'* ]]; then
-      ((count++))
-    fi
-  done < "$file"
-
-  echo "$count"
+  count_tests_in_file "$file" "#[test]"
 }
 
 # Find all Rust test files in a directory
@@ -430,28 +413,12 @@ discover_rust_suites() {
   # Create test suite entries for each Rust test file
   for file in "${rust_files[@]}"; do
     local rel_path="${file#$PROJECT_ROOT/}"
-    # Ensure rel_path doesn't start with /
     rel_path="${rel_path#/}"
     local suite_name
     local test_count
 
-    # Generate suite name from file path
-    # Remove .rs extension and replace / with -
-    suite_name="${rel_path%.rs}"
-    suite_name="${suite_name//\//-}"
-
-    # If suite name is empty, use filename
-    if [[ -z "$suite_name" ]]; then
-      suite_name=$(basename "$file" .rs)
-    fi
-
-    # Count tests in this Rust file
-    # Ensure we have an absolute path for reliable file access
-    local abs_file="$file"
-    if [[ "$abs_file" != /* ]]; then
-      abs_file="$(cd "$(dirname "$abs_file")" && pwd)/$(basename "$abs_file")"
-    fi
-    test_count=$(count_rust_tests "$abs_file")
+    suite_name=$(generate_suite_name "$file" "rs")
+    test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
     # Add suite metadata (format: framework|suite_name|file_path|rel_path|test_count)
     DISCOVERED_SUITES+=("rust|$suite_name|$file|$rel_path|$test_count")
