@@ -22,10 +22,70 @@ To compile all modules into `suitey.sh`, run:
 ./build.sh
 ```
 
+To create a minified version (removes comments and unnecessary whitespace), use:
+
+```bash
+./build.sh --minify
+# or
+./build.sh -m
+```
+
+**Note:** The minified version is output to `suitey.min.sh` (not `suitey.sh`), so you can have both versions available.
+
 The build script:
-1. Creates a new `suitey.sh` with the shebang and set options
+1. Creates a new output file (`suitey.sh` or `suitey.min.sh`) with the shebang and set options
 2. Concatenates all source modules in dependency order
-3. Makes the output file executable
+3. (Optional) Minifies the output by removing comments and whitespace
+4. Makes the output file executable
+
+### Minification
+
+The `--minify` option performs aggressive optimization while preserving functionality:
+
+**Removed:**
+- All comment-only lines (except shebang and `set` commands)
+- Inline/trailing comments (where safe to remove)
+- All empty lines
+- Trailing whitespace
+- Trailing semicolons (bash doesn't require them)
+- Multiple consecutive spaces (compressed to single space)
+- Unnecessary spaces around braces and parentheses: `{ }` → `{}`, `( )` → `()`
+- Spaces before semicolons: ` ;` → `;`
+
+**Optimized:**
+- Variable assignments: `variable = value` → `variable=value` (where safe)
+- Local/declare statements: `local var = value` → `local var=value`
+- Whitespace compression (preserves indentation structure)
+
+**Name Mangling:**
+- Function names: `adapter_registry_initialize` → `h`
+- Variable names: `DETECTED_FRAMEWORKS` → `aB`
+- String keys in JSON: `"name"` → `"a"` (where applicable)
+- All names mapped to single or double characters
+- Mapping file generated: `suitey.min.map` for test compatibility
+
+**Preserved:**
+- Heredoc content (completely untouched)
+- String literals (including `#` characters within strings)
+- Code indentation structure
+- Case statement terminators (`;;`)
+- Conditional expressions (`[[ ]]`, `[ ]`, comparisons)
+- Command flags (e.g., `declare -A` not affected)
+- All functional code
+
+**Results:**
+- File size reduction: ~39% (53,866 → 32,942 bytes)
+- Line reduction: ~36% (1864 → 1197 lines)
+- Full functionality maintained
+- Syntax validated before output
+
+### Mapping File
+
+The minification process generates `suitey.min.map` which contains:
+- Forward mappings: `original_name=minified_name`
+- Reverse mappings: `#REVERSE:minified_name=original_name`
+
+This mapping file can be used by the test suite to call minified functions by their original names. See `tests/bats/helpers/minified_mapping.bash` for helper functions to load and use the mappings.
 
 ## Module Dependencies
 
