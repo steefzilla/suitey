@@ -43,6 +43,18 @@ get_suitey_script() {
   [[ "$output" == *"-h"* ]]
 }
 
+@test "suitey.sh with no arguments shows help text" {
+  local script
+  script=$(get_suitey_script)
+  
+  run "$script"
+  
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Suitey Project Scanner"* ]]
+  [[ "$output" == *"USAGE:"* ]]
+  [[ "$output" == *"OPTIONS:"* ]]
+}
+
 @test "help text contains usage information" {
   local script
   script=$(get_suitey_script)
@@ -50,7 +62,7 @@ get_suitey_script() {
   run "$script" --help
   
   [ "$status" -eq 0 ]
-  [[ "$output" == *"suitey.sh [OPTIONS] [PROJECT_ROOT]"* ]]
+  [[ "$output" == *"suitey.sh [OPTIONS] PROJECT_ROOT"* ]]
 }
 
 @test "help text does not contain verbose sections" {

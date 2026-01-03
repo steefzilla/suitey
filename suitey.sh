@@ -553,16 +553,12 @@ show_help() {
   cat << 'EOF'
 Suitey Project Scanner
 
-Scans a project directory to detect test frameworks (BATS, Rust) and discover
+Scans PROJECT_ROOT to detect test frameworks (BATS, Rust) and discover
 test suites. Outputs structured information about detected frameworks and
 discovered test suites.
 
 USAGE:
-    suitey.sh [OPTIONS] [PROJECT_ROOT]
-
-ARGUMENTS:
-    PROJECT_ROOT    Optional path to project root directory to scan.
-                    Defaults to current directory if not specified.
+    suitey.sh [OPTIONS] PROJECT_ROOT
 
 OPTIONS:
     -h, --help      Show this help message and exit.
@@ -610,9 +606,14 @@ main() {
     esac
   done
 
-  # Set PROJECT_ROOT (use argument if provided, otherwise default to current directory)
-  PROJECT_ROOT="${project_root_arg:-$(pwd)}"
-  PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+  # If no PROJECT_ROOT argument provided, show help
+  if [[ -z "$project_root_arg" ]]; then
+    show_help
+    exit 0
+  fi
+
+  # Set PROJECT_ROOT
+  PROJECT_ROOT="$(cd "$project_root_arg" && pwd)"
 
   scan_project
   output_results
