@@ -57,174 +57,47 @@ create_test_directory() {
 }
 
 # Assert scanner output format and content
-assert_scanner_output() {
-  local output="$1"
-  local expected_framework="${2:-}"
-  local expected_suite_count="${3:-}"
-  
-  # Check if output contains framework detection
-  if [[ -n "$expected_framework" ]]; then
-    local framework_message=""
-    case "$expected_framework" in
-      "bats")
-        framework_message="BATS framework detected"
-        ;;
-      "rust")
-        framework_message="Rust framework detected"
-        ;;
-      *)
-        framework_message="${expected_framework} framework detected"
-        ;;
-    esac
-    if ! echo "$output" | grep -q "$framework_message"; then
-      echo "ERROR: Expected $expected_framework framework detection in output"
-      echo "Output was:"
-      echo "$output"
-      return 1
-    fi
-  fi
-  
-  # Check if output contains suite count
-  if [[ -n "$expected_suite_count" ]]; then
-    if ! echo "$output" | grep -q "Discovered $expected_suite_count test suite"; then
-      echo "ERROR: Expected $expected_suite_count test suite(s) in output"
-      echo "Output was:"
-      echo "$output"
-      return 1
-    fi
-  fi
-  
-  return 0
-}
-
-# Assert no test suites found
-assert_no_test_suites() {
-  local output="$1"
-  
-  if ! echo "$output" | grep -q "No test suites found"; then
-    echo "ERROR: Expected 'No test suites found' message"
-    echo "Output was:"
-    echo "$output"
-    return 1
-  fi
-  
-  return 0
-}
-
-# Assert structured text output contains expected fields
-assert_structured_output() {
-  local output="$1"
-  local field="${2:-}"
-  
-  case "$field" in
-    "frameworks")
-      if ! echo "$output" | grep -q "Detected frameworks"; then
-        echo "ERROR: Expected 'Detected frameworks' in output"
-        return 1
-      fi
-      ;;
-    "suites")
-      if ! echo "$output" | grep -q "Test Suites:"; then
-        echo "ERROR: Expected 'Test Suites:' in output"
-        return 1
-      fi
-      ;;
-    "errors")
-      if ! echo "$output" | grep -qE "(Warnings:|Errors:)"; then
-        # Errors/warnings are optional, so this is just a check
-        return 0
-      fi
-      ;;
-  esac
-  
-  return 0
-}
-
-# Assert test count for a specific suite
-assert_test_count() {
-  local output="$1"
-  local suite_name="$2"
-  local expected_count="$3"
-  
-  # Extract the test count for the specified suite
-  # The output format is:
-  #   • suite-name (framework)
-  #     Path: path/to/file.bats
-  #     Tests: X
-  #
-  # We need to find the suite name, then look for "Tests: X" on the next lines
-  
-  # Use a simpler approach: find the suite block with grep -A and extract the test count
-  local suite_block
-  suite_block=$(echo "$output" | grep -A 3 "•.*$suite_name")
-  
-  if [[ -z "$suite_block" ]]; then
-    echo "ERROR: Could not find suite '$suite_name' in output"
-    echo "Output was:"
-    echo "$output"
-    return 1
-  fi
-  
-  # Extract the test count from the suite block
-  local actual_count
-  actual_count=$(echo "$suite_block" | grep "Tests:" | grep -oE "[0-9]+" | head -1)
-  
-  if [[ -z "$actual_count" ]]; then
-    echo "ERROR: Could not find test count for suite '$suite_name'"
-    echo "Suite block was:"
-    echo "$suite_block"
-    echo "Full output was:"
-    echo "$output"
-    return 1
-  fi
-  
-  if [[ "$actual_count" != "$expected_count" ]]; then
-    echo "ERROR: Expected $expected_count test(s) for suite '$suite_name', but found $actual_count"
-    echo "Suite block was:"
-    echo "$suite_block"
-    echo "Full output was:"
-    echo "$output"
-    return 1
-  fi
-  
-  return 0
-}
-
-# Assert that test counts are present in output
-assert_test_counts_present() {
-  local output="$1"
-  
-  # Check that "Tests:" appears in the output
-  if ! echo "$output" | grep -q "Tests:"; then
-    echo "ERROR: Expected 'Tests:' to appear in output for each suite"
-    echo "Output was:"
-    echo "$output"
-    return 1
-  fi
-  
-  return 0
-}
 
 # Run scanner on a project directory and capture output
-run_scanner() {
+
+# Test function for test suite discovery integration tests
+test_suite_discovery_with_registry() {
+  local project_dir="$1"
+  PROJECT_ROOT="$(cd "$project_dir" && pwd)"
+
+  # Initialize registry
+  if ! adapter_registry_initialize >/dev/null 2>&1; then
+    echo "registry unavailable" >&2
+    return 1
+  fi
+
+  # Run scan_project
+  scan_project
+
+  # Output results
+  output_results
+}
+
+# Run test suite discovery with registry integration
+run_test_suite_discovery_registry_integration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
   local scanner_script
-  
+
   # Determine the path to suitey.sh
-  # BATS_TEST_DIRNAME points to the directory containing the test file
-  # From tests/bats/unit/ or tests/bats/integration/, we need to go up to project root
   if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
     scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
   elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
     scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
   else
-    # Fallback: try to find it relative to current directory
     scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
   fi
-  
-  # Run scanner and capture both stdout and stderr
-  output=$("$scanner_script" "$project_dir" 2>&1) || true
+
+  # Source suitey.sh to make functions available
+  source "$scanner_script"
+
+  # Run test suite discovery and capture both stdout and stderr
+  output=$(test_suite_discovery_with_registry "$project_dir" 2>&1) || true
   echo "$output"
 }
 
@@ -297,47 +170,6 @@ count_rust_tests() {
   echo "$count"
 }
 
-# Update assert_scanner_output to support Rust framework
-assert_scanner_output() {
-  local output="$1"
-  local expected_framework="${2:-}"
-  local expected_suite_count="${3:-}"
-
-  # Check if output contains framework detection
-  if [[ -n "$expected_framework" ]]; then
-    local framework_message=""
-    case "$expected_framework" in
-      "bats")
-        framework_message="BATS framework detected"
-        ;;
-      "rust")
-        framework_message="Rust framework detected"
-        ;;
-      *)
-        framework_message="${expected_framework} framework detected"
-        ;;
-    esac
-
-    if ! echo "$output" | grep -q "$framework_message"; then
-      echo "ERROR: Expected $expected_framework framework detection in output"
-      echo "Output was:"
-      echo "$output"
-      return 1
-    fi
-  fi
-
-  # Check if output contains suite count
-  if [[ -n "$expected_suite_count" ]]; then
-    if ! echo "$output" | grep -q "Discovered $expected_suite_count test suite"; then
-      echo "ERROR: Expected $expected_suite_count test suite(s) in output"
-      echo "Output was:"
-      echo "$output"
-      return 1
-    fi
-  fi
-
-  return 0
-}
 
 # Mock cargo binary availability by modifying PATH (similar to bats mocking)
 mock_cargo_unavailable() {

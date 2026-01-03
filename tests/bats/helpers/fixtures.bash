@@ -281,6 +281,75 @@ EOF
   echo "$file_path"
 }
 
+# Create project with specific pattern for adapter testing
+create_project_with_pattern() {
+  local base_dir="$1"
+  local pattern="$2"
+
+  # Create project root
+  mkdir -p "$base_dir"
+
+  # Create a file that matches the pattern for testing
+  case "$pattern" in
+    "mock_pattern")
+      echo "# Mock pattern file" > "$base_dir/mock_pattern.txt"
+      ;;
+    *)
+      echo "# Generic pattern file for $pattern" > "$base_dir/$pattern.txt"
+      ;;
+  esac
+
+  echo "$base_dir"
+}
+
+# Create multi-framework project for testing
+create_multi_framework_project() {
+  local base_dir="$1"
+
+  # Create project root
+  mkdir -p "$base_dir"
+
+  # Create BATS test structure
+  mkdir -p "$base_dir/tests/bats"
+  cat > "$base_dir/tests/bats/multi.bats" << 'EOF'
+#!/usr/bin/env bats
+
+@test "multi-framework test" {
+  [ true ]
+}
+EOF
+  chmod +x "$base_dir/tests/bats/multi.bats"
+
+  # Create Rust project structure
+  cat > "$base_dir/Cargo.toml" << 'EOF'
+[package]
+name = "multi_framework_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+EOF
+
+  mkdir -p "$base_dir/src"
+  cat > "$base_dir/src/lib.rs" << 'EOF'
+pub fn example() -> String {
+    "example".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_example() {
+        assert_eq!(example(), "example");
+    }
+}
+EOF
+
+  echo "$base_dir"
+}
+
 # ============================================================================
 # Rust Project Fixtures
 # ============================================================================
