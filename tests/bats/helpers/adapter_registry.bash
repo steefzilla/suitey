@@ -21,7 +21,9 @@ teardown_adapter_registry_test() {
   fi
 
   # Clean up registry state files
-  rm -f /tmp/suitey_adapter_*
+  rm -f /tmp/suitey_adapter_registry /tmp/suitey_adapter_capabilities /tmp/suitey_adapter_order /tmp/suitey_adapter_init
+  # Clean up any test directories that might be left
+  find /tmp -maxdepth 1 -name "suitey_adapter_test_*" -type d -exec rm -rf {} + 2>/dev/null || true
 }
 
 # ============================================================================
