@@ -165,9 +165,9 @@ Suitey follows a **single-process architecture** with framework detection and ad
 │         suitey (main process)       │
 ├─────────────────────────────────────┤
 │  Project Scanner                    │
-│  Build System Detector              │
-│  Framework Detector                 │
+│  Framework Detector                 |
 │  Test Suite Discovery               │
+|  Build System Detector              │
 │  Adapter Registry                   │
 │  Build Manager                      │
 │  Parallel Execution Manager         │
