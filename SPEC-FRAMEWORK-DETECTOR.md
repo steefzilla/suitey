@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Framework Detector is a core component of Suitey responsible for automatically identifying which test frameworks are present and available in a project directory. It operates through a combination of heuristics, file system scanning, and adapter-based detection logic to provide zero-configuration framework identification. The Framework Detector works in conjunction with the Adapter Registry to coordinate framework-specific detection across multiple testing frameworks.
+The Framework Detector is a specialized component of Suitey responsible for automatically identifying which test frameworks are present and available in a project directory. It is called by Project Scanner as the **first phase** of the execution workflow. Framework Detector operates through adapter-based detection logic, where each framework adapter implements framework-specific heuristics. The Framework Detector works in conjunction with the Adapter Registry to coordinate framework-specific detection across multiple testing frameworks. Its results inform subsequent phases: Test Suite Discovery and Build System Detection.
 
 ## Responsibilities
 
@@ -22,21 +22,21 @@ The Framework Detector operates as part of the main suitey process:
 ┌─────────────────────────────────────┐
 │         suitey (main process)       │
 ├─────────────────────────────────────┤
-│  Project Scanner                    │
-│  Framework Detector                 │ ← This component
-│  Test Suite Discovery               │
-│  Build System Detector              │
-│  Adapter Registry                   │
+│  Project Scanner (Orchestrator)     │
+│  ├─ Framework Detector             │ ← This component
+│  │  └─ Adapter Registry            │
+│  ├─ Test Suite Discovery           │
+│  └─ Build System Detector           │
 │  ...                                │
 └─────────────────────────────────────┘
 ```
 
 ### Relationship to Other Components
 
-- **Project Scanner**: The Project Scanner orchestrates overall project analysis and calls the Framework Detector to identify frameworks
-- **Adapter Registry**: The Framework Detector uses the Adapter Registry to access framework-specific detection logic
-- **Test Suite Discovery**: Framework detection results inform test suite discovery, which uses framework adapters to find test files
-- **Build System Detector**: Framework detection may inform build system detection, as some frameworks require specific build steps
+- **Project Scanner**: The Project Scanner orchestrates overall project analysis and calls the Framework Detector as the **first step** in the workflow. Framework Detector's results inform subsequent phases (Test Suite Discovery and Build System Detection).
+- **Adapter Registry**: The Framework Detector uses the Adapter Registry to access framework-specific detection logic. Each adapter implements detection methods that Framework Detector coordinates.
+- **Test Suite Discovery**: Framework detection results are used by Test Suite Discovery to determine which framework adapters to use for finding test files. Test Suite Discovery operates **after** Framework Detection completes.
+- **Build System Detector**: Framework detection results may inform build system detection, as some frameworks require specific build steps. Build System Detector operates **after** Framework Detection completes.
 
 ## Detection Strategy
 
@@ -341,5 +341,8 @@ The Framework Detector provides detection results in a structured format:
 - **Errors**: Array of error messages
 - **Binary Status**: Object mapping frameworks to binary availability status
 
-This structured output is used by downstream components (Test Suite Discovery, Build System Detector, etc.) to inform their operations.
+This structured output is used by downstream components:
+- **Test Suite Discovery**: Uses detected frameworks to determine which adapters to use for finding test files
+- **Build System Detector**: Uses detected frameworks to determine build requirements per framework
+- **Project Scanner**: Aggregates framework detection results with other component outputs
 

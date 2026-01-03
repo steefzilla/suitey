@@ -131,8 +131,25 @@ load ../helpers/fixtures
   output=$(run_scanner "$TEST_PROJECT_DIR")
 
   # Should detect and report multiple frameworks
-  assert_scanner_output "$output" "bats" "1"
-  # Note: Rust detection might need Cargo.toml for proper detection
+  # Now that the bug is fixed, both frameworks should have their test suites discovered
+  # The multi-framework project has 1 BATS suite and 1 Rust suite = 2 total suites
+  assert_scanner_output "$output" "bats" "2"
+  
+  # Verify both frameworks are detected
+  if ! echo "$output" | grep -q "BATS framework detected"; then
+    echo "ERROR: Should detect BATS framework"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
+  if ! echo "$output" | grep -q "Rust framework detected"; then
+    echo "ERROR: Should detect Rust framework"
+    echo "Output: $output"
+    teardown_test_project
+    return 1
+  fi
+  
   assert_structured_output "$output" "frameworks"
   teardown_test_project
 }
