@@ -241,7 +241,19 @@ load ../helpers/fixtures
   setup_adapter_registry_test
   setup_test_project
 
-  # Don't register any adapters (empty list from Framework Detector)
+  # Manually ensure registry is empty by cleaning up global state and files
+  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
+  adapter_registry_cleanup
+  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_order"
+  rm -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+
+  # Create the init file to indicate registry is initialized (but empty)
+  echo "true" > "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+
+  # Set flag to skip registry initialization
+  export SUITEY_SKIP_REGISTRY_INIT=true
 
   # Create a project
   create_bats_project "$TEST_PROJECT_DIR"
@@ -409,11 +421,27 @@ EOF
   source "$adapter_dir/adapter.sh"
 }
 
-# Run Test Suite Discovery with registry integration (calls non-existent function)
+# Run Test Suite Discovery with registry integration
 run_test_suite_discovery_registry_integration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
-  # Call non-existent integration function - will fail for TDD
-  test_suite_discovery_with_registry "$project_dir"
+  local output
+  local scanner_script
+
+  # Determine the path to suitey.sh
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # Source suitey.sh to make functions available
+  source "$scanner_script"
+
+  # Run test suite discovery and capture both stdout and stderr
+  output=$(test_suite_discovery_with_registry "$project_dir" 2>&1) || true
+  echo "$output"
 }
 
 # ============================================================================

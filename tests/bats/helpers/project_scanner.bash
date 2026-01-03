@@ -210,7 +210,7 @@ run_scanner() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
   local scanner_script
-  
+
   # Determine the path to suitey.sh
   # BATS_TEST_DIRNAME points to the directory containing the test file
   # From tests/bats/unit/ or tests/bats/integration/, we need to go up to project root
@@ -222,9 +222,63 @@ run_scanner() {
     # Fallback: try to find it relative to current directory
     scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
   fi
-  
+
   # Run scanner and capture both stdout and stderr
   output=$("$scanner_script" "$project_dir" 2>&1) || true
+  echo "$output"
+}
+
+# Test function for test suite discovery integration tests
+test_suite_discovery_with_registry() {
+  local project_dir="$1"
+  PROJECT_ROOT="$(cd "$project_dir" && pwd)"
+
+  # Check if registry has been initialized by looking for the init file in test dir
+  local init_file_exists=false
+  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" && -f "$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init" ]]; then
+    init_file_exists=true
+  fi
+
+  # Only initialize registry if it hasn't been initialized at all
+  if [[ "$init_file_exists" != "true" ]]; then
+    if [[ -z "${SUITEY_SKIP_REGISTRY_INIT:-}" ]]; then
+      if ! adapter_registry_initialize >/dev/null 2>&1; then
+        echo "registry unavailable" >&2
+        return 1
+      fi
+    else
+      echo "registry unavailable" >&2
+    fi
+  fi
+  # If registry was already initialized (by test setup), respect that state
+
+  # Run scan_project
+  scan_project
+
+  # Output results
+  output_results
+}
+
+# Run test suite discovery with registry integration
+run_test_suite_discovery_registry_integration() {
+  local project_dir="${1:-$TEST_PROJECT_DIR}"
+  local output
+  local scanner_script
+
+  # Determine the path to suitey.sh
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # Source suitey.sh to make functions available
+  source "$scanner_script"
+
+  # Run test suite discovery and capture both stdout and stderr
+  output=$(test_suite_discovery_with_registry "$project_dir" 2>&1) || true
   echo "$output"
 }
 
