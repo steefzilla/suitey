@@ -20,10 +20,6 @@ else
   NC=''
 fi
 
-# Project root directory (default to current directory)
-PROJECT_ROOT="${1:-$(pwd)}"
-PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
-
 # Scanner state
 DETECTED_FRAMEWORKS=()
 DISCOVERED_SUITES=()
@@ -550,10 +546,74 @@ output_results() {
 }
 
 # ============================================================================
+# Help Text
+# ============================================================================
+
+show_help() {
+  cat << 'EOF'
+Suitey Project Scanner
+
+Scans a project directory to detect test frameworks (BATS, Rust) and discover
+test suites. Outputs structured information about detected frameworks and
+discovered test suites.
+
+USAGE:
+    suitey.sh [OPTIONS] [PROJECT_ROOT]
+
+ARGUMENTS:
+    PROJECT_ROOT    Optional path to project root directory to scan.
+                    Defaults to current directory if not specified.
+
+OPTIONS:
+    -h, --help      Show this help message and exit.
+EOF
+}
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 
 main() {
+  # Check for help flags
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help)
+        show_help
+        exit 0
+        ;;
+    esac
+  done
+
+  # Process PROJECT_ROOT argument (first non-flag argument)
+  local project_root_arg=""
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help)
+        # Already handled above
+        ;;
+      -*)
+        # Unknown option
+        echo "Error: Unknown option: $arg" >&2
+        echo "Run 'suitey.sh --help' for usage information." >&2
+        exit 2
+        ;;
+      *)
+        # First non-flag argument is PROJECT_ROOT
+        if [[ -z "$project_root_arg" ]]; then
+          project_root_arg="$arg"
+        else
+          echo "Error: Multiple project root arguments specified." >&2
+          echo "Run 'suitey.sh --help' for usage information." >&2
+          exit 2
+        fi
+        ;;
+    esac
+  done
+
+  # Set PROJECT_ROOT (use argument if provided, otherwise default to current directory)
+  PROJECT_ROOT="${project_root_arg:-$(pwd)}"
+  PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+
   scan_project
   output_results
 }
