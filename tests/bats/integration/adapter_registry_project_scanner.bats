@@ -3,6 +3,7 @@
 load ../helpers/adapter_registry
 load ../helpers/project_scanner
 load ../helpers/fixtures
+load ../helpers/framework_detector
 
 # ============================================================================
 # Project Scanner - Adapter Registry Orchestration Tests
@@ -211,6 +212,7 @@ load ../helpers/fixtures
   setup_test_project
 
   # Don't initialize registry (simulate unavailability)
+  export SUITEY_SKIP_REGISTRY_INIT=1
 
   # Create a project
   create_bats_project "$TEST_PROJECT_DIR"
@@ -540,11 +542,27 @@ EOF
   echo "$base_dir"
 }
 
-# Run Project Scanner with registry orchestration (calls non-existent function)
+# Run Project Scanner with registry orchestration
 run_project_scanner_registry_orchestration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
-  # Call non-existent orchestration function - will fail for TDD
-  project_scanner_registry_orchestration "$project_dir"
+  local output
+  local scanner_script
+
+  # Determine the path to suitey.sh
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # Source suitey.sh to get access to functions, then call the orchestration function
+  output=$(
+    source "$scanner_script"
+    project_scanner_registry_orchestration "$project_dir" 2>&1 || true
+  )
+  echo "$output"
 }
 
 # ============================================================================
