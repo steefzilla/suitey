@@ -1,0 +1,89 @@
+.TH SUITEY.SH 1 "2024" "Suitey Project Scanner"
+.SH NAME
+suitey.sh \- Scan project directories for test frameworks and discover test suites
+.SH SYNOPSIS
+.B suitey.sh
+[\fIOPTIONS\fR] [\fIPROJECT_ROOT\fR]
+.SH DESCRIPTION
+Suitey Project Scanner automatically detects test frameworks (BATS, Rust) in a
+project directory and discovers all available test suites. It outputs structured
+information about detected frameworks and discovered test suites.
+.SH ARGUMENTS
+.TP
+\fIPROJECT_ROOT\fR
+Optional path to project root directory to scan. Defaults to current directory
+if not specified.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show help message and exit.
+.SH EXAMPLES
+.PP
+Scan current directory:
+.RS
+.B suitey.sh
+.RE
+.PP
+Scan a specific project directory:
+.RS
+.B suitey.sh /path/to/project
+.RE
+.PP
+Show help:
+.RS
+.B suitey.sh --help
+.RE
+.SH DETECTED FRAMEWORKS
+.SS BATS
+Detects .bats files in common test directories:
+.RS
+.IP \(bu 4
+tests/bats/
+.IP \(bu 4
+test/bats/
+.IP \(bu 4
+tests/
+.IP \(bu 4
+test/
+.IP \(bu 4
+Project root
+.RE
+.SS Rust
+Detects Rust projects with:
+.RS
+.IP \(bu 4
+Cargo.toml in project root
+.IP \(bu 4
+Test files in src/ (with #[cfg(test)] mods)
+.IP \(bu 4
+Test files in tests/ directory
+.RE
+.SH OUTPUT
+The scanner outputs:
+.RS
+.IP \(bu 4
+Detected test frameworks
+.IP \(bu 4
+Discovered test suites with:
+.RS
+.IP \(bu 4
+Suite name
+.IP \(bu 4
+File path (relative to project root)
+.IP \(bu 4
+Test count
+.RE
+.IP \(bu 4
+Warnings if framework tools are missing
+.RE
+.SH EXIT CODES
+.TP
+.B 0
+Success - test suites found
+.TP
+.B 2
+Error - no test frameworks or suites detected
+.SH SEE ALSO
+.BR SPEC.md (5),
+.BR SPEC-PROJECT-SCANNER.md (5)
+
