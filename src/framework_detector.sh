@@ -2,6 +2,15 @@
 # Framework Detector
 # ============================================================================
 
+# Source JSON helper functions
+if [[ -f "json_helpers.sh" ]]; then
+  source "json_helpers.sh"
+elif [[ -f "src/json_helpers.sh" ]]; then
+  source "src/json_helpers.sh"
+elif [[ -f "../src/json_helpers.sh" ]]; then
+  source "../src/json_helpers.sh"
+fi
+
 # Framework Detection State
 DETECTED_FRAMEWORKS_JSON=""
 FRAMEWORK_DETAILS_JSON=""
@@ -198,12 +207,12 @@ parse_test_suites_json() {
 detect_frameworks() {
   local project_root="$1"
 
-  # Initialize result arrays
-  local detected_frameworks=()
-  local framework_details_json="{}"
-  local binary_status_json="{}"
-  local warnings_json="[]"
-  local errors_json="[]"
+  # Initialize result arrays (use arrays internally, convert to JSON at output)
+  local -a detected_frameworks_array=()
+  local -A framework_details_map=()
+  local -A binary_status_map=()
+  local -a warnings_array=()
+  local -a errors_array=()
 
   # Get adapters from registry
   echo "using adapter registry" >&2
@@ -252,7 +261,7 @@ detect_frameworks() {
     echo "registry detect $adapter" >&2
     if "$adapter_detect_func" "$project_root"; then
       # Framework detected, add to list
-      detected_frameworks+=("$adapter")
+      detected_frameworks_array+=("$adapter")
       echo "processed $adapter" >&2
 
       # Get framework metadata
@@ -268,31 +277,14 @@ detect_frameworks() {
         binary_available=true
       fi
 
-      # Add to binary status
-      if [[ "$binary_status_json" == "{}" ]]; then
-        binary_status_json="{\"$adapter\": \"$binary_available\"}"
-      else
-        # Remove trailing } and add comma
-        binary_status_json="${binary_status_json%\} }, \"$adapter\": \"$binary_available\"}"
-      fi
-
-      # Add to framework details
-      if [[ "$framework_details_json" == "{}" ]]; then
-        framework_details_json="{\"$adapter\": $metadata_json}"
-      else
-        # Remove trailing } and add comma
-        framework_details_json="${framework_details_json%\} }, \"$adapter\": $metadata_json}"
-      fi
+      # Store in arrays (convert to JSON only at output)
+      framework_details_map["$adapter"]="$metadata_json"
+      binary_status_map["$adapter"]="$binary_available"
 
       # Generate warning if binary is not available
       if [[ "$binary_available" == "false" ]]; then
         local warning_msg="$adapter binary is not available"
-        if [[ "$warnings_json" == "[]" ]]; then
-          warnings_json="[\"$warning_msg\"]"
-        else
-          # Remove trailing ] and add comma
-          warnings_json="${warnings_json%\] }, \"$warning_msg\"]"
-        fi
+        warnings_array+=("$warning_msg")
       fi
     else
       # Adapter detection failed - log for test verification
@@ -300,12 +292,12 @@ detect_frameworks() {
     fi
   done
 
-  # Store results in global variables
-  DETECTED_FRAMEWORKS_JSON=$(json_array "${detected_frameworks[@]}")
-  FRAMEWORK_DETAILS_JSON="$framework_details_json"
-  BINARY_STATUS_JSON="$binary_status_json"
-  FRAMEWORK_WARNINGS_JSON="$warnings_json"
-  FRAMEWORK_ERRORS_JSON="$errors_json"
+  # Store results in global variables (convert arrays to JSON)
+  DETECTED_FRAMEWORKS_JSON=$(array_to_json detected_frameworks_array)
+  FRAMEWORK_DETAILS_JSON=$(assoc_array_to_json framework_details_map)
+  BINARY_STATUS_JSON=$(assoc_array_to_json binary_status_map)
+  FRAMEWORK_WARNINGS_JSON=$(array_to_json warnings_array)
+  FRAMEWORK_ERRORS_JSON=$(array_to_json errors_array)
 
   # Test integration marker
   echo "orchestrated framework detector" >&2

@@ -12,6 +12,15 @@ if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
   fi
 fi
 
+# Source JSON helper functions
+if [[ -f "json_helpers.sh" ]]; then
+  source "json_helpers.sh"
+elif [[ -f "src/json_helpers.sh" ]]; then
+  source "src/json_helpers.sh"
+elif [[ -f "../src/json_helpers.sh" ]]; then
+  source "../src/json_helpers.sh"
+fi
+
 # Build Manager state variables
 BUILD_MANAGER_TEMP_DIR=""
 BUILD_MANAGER_ACTIVE_CONTAINERS=()
@@ -217,9 +226,13 @@ build_manager_orchestrate() {
     return 1
   fi
 
-  # Analyze dependencies and group builds
-  local dependency_analysis
-  dependency_analysis=$(build_manager_analyze_dependencies "$build_requirements_json")
+  # Convert JSON to Bash arrays for internal processing
+  local -a build_reqs_array
+  build_requirements_json_to_array "$build_requirements_json" build_reqs_array
+
+  # Analyze dependencies and group builds (using arrays internally)
+  local -A dependency_analysis
+  build_manager_analyze_dependencies_array build_reqs_array dependency_analysis
 
   # Execute builds by dependency tiers
   local build_results="[]"
@@ -227,51 +240,74 @@ build_manager_orchestrate() {
 
   if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
     # Test mode: return mock results without executing builds
-    local framework_count
-    framework_count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null || echo "0")
+    local framework_count="${#build_reqs_array[@]}"
 
     for ((i=0; i<framework_count; i++)); do
       local framework
-      framework=$(echo "$build_requirements_json" | jq -r ".[$i].framework" 2>/dev/null)
+      framework=$(json_get "${build_reqs_array[$i]}" ".framework")
       local mock_result
-      mock_result=$(jq -n --arg f "$framework" '{"framework": $f, "status": "built", "duration": 1.5, "container_id": "mock_container_123"}')
-      build_results=$(echo "$build_results [$mock_result]" | jq -s '.[0] + .[1]' 2>/dev/null || echo "[$mock_result]")
+      mock_result=$(json_set "{}" ".framework" "\"$framework\"" | json_set "." ".status" "\"built\"" | json_set "." ".duration" "1.5" | json_set "." ".container_id" "\"mock_container_123\"")
+      build_results=$(json_merge "$build_results" "[$mock_result]")
     done
   else
     # Production mode: actually execute builds
     # Parse dependency tiers and execute
-    local tier_count
-    tier_count=$(echo "$dependency_analysis" | jq 'keys | map(select(startswith("tier_"))) | length' 2>/dev/null || echo "0")
+    local tier_count=0
+    # Count tiers in dependency_analysis
+    for key in "${!dependency_analysis[@]}"; do
+      if [[ "$key" == tier_*_json ]]; then
+        ((tier_count++))
+      fi
+    done
 
     for ((tier=0; tier<tier_count; tier++)); do
-      local tier_frameworks
-      tier_frameworks=$(echo "$dependency_analysis" | jq -r ".tier_$tier[]?" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+      local tier_key="tier_${tier}_json"
+      if [[ -v dependency_analysis["$tier_key"] ]]; then
+        local tier_frameworks_json="${dependency_analysis[$tier_key]}"
+        local -a tier_frameworks_array
+        json_to_array "$tier_frameworks_json" tier_frameworks_array
 
-      if [[ -n "$tier_frameworks" ]] && [[ "$tier_frameworks" != "null" ]]; then
-        # Get build specs for frameworks in this tier
-        local tier_build_specs="[]"
-        for framework in $tier_frameworks; do
-          local build_spec
-          build_spec=$(echo "$build_requirements_json" | jq "[.[] | select(.framework == \"$framework\")]" 2>/dev/null)
-          if [[ -n "$build_spec" ]] && [[ "$build_spec" != "[]" ]]; then
-            tier_build_specs=$(echo "$tier_build_specs $build_spec" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$build_spec")
+        if [[ ${#tier_frameworks_array[@]} -gt 0 ]]; then
+          # Get build specs for frameworks in this tier (keep as JSON array for now)
+          local -a tier_build_specs_array=()
+          for framework in "${tier_frameworks_array[@]}"; do
+            # Find the build spec for this framework
+            for req_json in "${build_reqs_array[@]}"; do
+              local req_framework
+              req_framework=$(json_get "$req_json" ".framework")
+              if [[ "$req_framework" == "$framework" ]]; then
+                tier_build_specs_array+=("$req_json")
+                break
+              fi
+            done
+          done
+
+          # Execute builds in this tier
+          local tier_build_specs_json
+          tier_build_specs_json=$(array_to_json tier_build_specs_array)
+          local tier_results
+          tier_results=$(build_manager_execute_parallel "$tier_build_specs_json")
+
+          # Merge results
+          build_results=$(json_merge "$build_results" "$tier_results")
+
+          # Check for failures
+          local has_failures=false
+          local tier_length
+          tier_length=$(json_array_length "$tier_results")
+          for ((k=0; k<tier_length; k++)); do
+            local status_val
+            status_val=$(json_get "$tier_results" ".[$k].status")
+            if [[ "$status_val" == "build-failed" ]]; then
+              has_failures=true
+              break
+            fi
+          done
+
+          if [[ "$has_failures" == "true" ]]; then
+            success=false
+            break
           fi
-        done
-
-        # Execute builds in this tier
-        local tier_results
-        tier_results=$(build_manager_execute_parallel "$tier_build_specs")
-
-        # Merge results
-        build_results=$(echo "$build_results $tier_results" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$tier_results")
-
-        # Check for failures
-        local has_failures
-        has_failures=$(echo "$tier_results" | jq '[.[] | select(.status == "build-failed")] | length > 0' 2>/dev/null || echo "false")
-
-        if [[ "$has_failures" == "true" ]]; then
-          success=false
-          break
         fi
       fi
     done
@@ -299,26 +335,26 @@ build_manager_analyze_dependencies() {
   local frameworks=()
   while IFS= read -r framework; do
     frameworks+=("$framework")
-  done < <(echo "$build_requirements_json" | jq -r '.[].framework' 2>/dev/null)
+  done < <(json_get_array "$build_requirements_json" ".framework")
 
   # Check for circular dependencies (simple check)
   local count
-  count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null || echo "0")
+  count=$(json_array_length "$build_requirements_json")
 
   for ((i=0; i<count; i++)); do
     local framework
-    framework=$(echo "$build_requirements_json" | jq -r ".[$i].framework" 2>/dev/null)
+    framework=$(json_get "$build_requirements_json" ".[$i].framework")
     local deps
-    deps=$(echo "$build_requirements_json" | jq -r ".[$i].build_dependencies // [] | join(\" \")" 2>/dev/null)
+    deps=$(json_get "$build_requirements_json" ".[$i].build_dependencies // [] | join(\" \")")
 
     # Simple circular dependency check
     if [[ -n "$deps" ]]; then
       for ((j=0; j<count; j++)); do
         if [[ $i != $j ]]; then
           local other_framework
-          other_framework=$(echo "$build_requirements_json" | jq -r ".[$j].framework" 2>/dev/null)
+          other_framework=$(json_get "$build_requirements_json" ".[$j].framework")
           local other_deps
-          other_deps=$(echo "$build_requirements_json" | jq -r ".[$j].build_dependencies // [] | join(\" \")" 2>/dev/null)
+          other_deps=$(json_get "$build_requirements_json" ".[$j].build_dependencies // [] | join(\" \")")
 
           # Check if there's a cycle
           if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$framework"* ]]; then
@@ -341,7 +377,15 @@ build_manager_analyze_dependencies() {
   for framework in "${frameworks[@]}"; do
     # Get dependencies for this framework
     local deps_length
-    deps_length=$(echo "$build_requirements_json" | jq "[.[] | select(.framework == \"$framework\") | .build_dependencies // []] | .[0] | length" 2>/dev/null || echo "0")
+    # Find the framework and get its dependency count
+    for ((j=0; j<count; j++)); do
+      local temp_framework
+      temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+      if [[ "$temp_framework" == "$framework" ]]; then
+        deps_length=$(json_get "$build_requirements_json" ".[$j].build_dependencies // [] | length")
+        break
+      fi
+    done
 
     if [[ "$deps_length" == "0" ]]; then
       # No dependencies, goes in tier_0
@@ -354,17 +398,70 @@ build_manager_analyze_dependencies() {
 
   # Add tiers to analysis
   if [[ ${#tier_0[@]} -gt 0 ]]; then
-    analysis=$(echo "$analysis" | jq ".tier_0 = $(printf '%s\n' "${tier_0[@]}" | jq -R . | jq -s .)")
+    tier_0_json=$(array_to_json tier_0)
+    analysis=$(json_set "$analysis" ".tier_0" "$tier_0_json")
   fi
   if [[ ${#tier_1[@]} -gt 0 ]]; then
-    analysis=$(echo "$analysis" | jq ".tier_1 = $(printf '%s\n' "${tier_1[@]}" | jq -R . | jq -s .)")
+    tier_1_json=$(array_to_json tier_1)
+    analysis=$(json_set "$analysis" ".tier_1" "$tier_1_json")
   fi
 
   # Add metadata about parallel execution within tiers
   local parallel_note='"Frameworks within the same tier can be built in parallel"'
-  analysis=$(echo "$analysis" | jq ".parallel_within_tiers = true | .execution_note = $parallel_note" 2>/dev/null || echo "$analysis")
+  analysis=$(json_set "$analysis" ".parallel_within_tiers" "true")
+  analysis=$(json_set "$analysis" ".execution_note" "$parallel_note")
 
   echo "$analysis"
+}
+
+# Array-based version of build_manager_analyze_dependencies
+# Arguments:
+#   build_reqs_array: Array of build requirement JSON strings
+#   dependency_analysis: Output associative array for dependency analysis
+build_manager_analyze_dependencies_array() {
+  local -n build_reqs_array_ref="$1"
+  local -n dependency_analysis_ref="$2"
+
+  # Clear the output array
+  dependency_analysis_ref=()
+
+  # Simple dependency analysis - put frameworks with no dependencies in tier_0,
+  # frameworks that depend on tier_0 frameworks in tier_1, etc.
+  local -a tier_0=()
+  local -a tier_1=()
+
+  for req_json in "${build_reqs_array_ref[@]}"; do
+    local framework
+    framework=$(json_get "$req_json" ".framework")
+
+    # Get dependencies for this framework
+    local deps_length
+    deps_length=$(json_get "$req_json" ".build_dependencies // [] | length")
+
+    if [[ "$deps_length" == "0" ]]; then
+      # No dependencies, goes in tier_0
+      tier_0+=("$framework")
+    else
+      # Has dependencies, goes in tier_1 for now
+      tier_1+=("$framework")
+    fi
+  done
+
+  # Add tiers to analysis
+  if [[ ${#tier_0[@]} -gt 0 ]]; then
+    local tier_0_json
+    tier_0_json=$(array_to_json tier_0)
+    dependency_analysis_ref["tier_0_json"]="$tier_0_json"
+  fi
+  if [[ ${#tier_1[@]} -gt 0 ]]; then
+    local tier_1_json
+    tier_1_json=$(array_to_json tier_1)
+    dependency_analysis_ref["tier_1_json"]="$tier_1_json"
+  fi
+
+  # Add metadata about parallel execution within tiers
+  dependency_analysis_ref["parallel_within_tiers"]="true"
+  dependency_analysis_ref["execution_note"]="Frameworks within the same tier can be built in parallel"
 }
 
 # Detect circular dependencies in dependency graph
@@ -380,12 +477,12 @@ _detect_circular_dependencies() {
   # Simple cycle detection (for now, just check direct cycles)
   for framework in "${frameworks[@]}"; do
     local deps
-    deps=$(echo "$dep_graph" | jq -r ".\"$framework\" // \"\"" 2>/dev/null)
+    deps=$(json_get "$dep_graph" ".\"$framework\" // \"\"")
 
     for dep in $deps; do
       # Check if dependency has this framework as dependency
       local reverse_deps
-      reverse_deps=$(echo "$dep_graph" | jq -r ".\"$dep\" // \"\"" 2>/dev/null)
+      reverse_deps=$(json_get "$dep_graph" ".\"$dep\" // \"\"")
 
       if [[ "$reverse_deps" == *"$framework"* ]]; then
         return 0  # Found circular dependency
@@ -410,11 +507,11 @@ build_manager_execute_parallel() {
 
   # Parse builds array
   local build_count
-  build_count=$(echo "$builds_json" | jq 'length' 2>/dev/null || echo "0")
+  build_count=$(json_array_length "$builds_json")
 
   for ((i=0; i<build_count; i++)); do
     local build_spec
-    build_spec=$(echo "$builds_json" | jq ".[$i]" 2>/dev/null)
+    build_spec=$(json_array_get "$builds_json" "$i")
 
     if [[ -n "$build_spec" ]] && [[ "$build_spec" != "null" ]]; then
       # Execute build in background if under parallel limit
@@ -448,7 +545,7 @@ build_manager_execute_parallel() {
     if [[ -f "$result_file" ]]; then
       local result
       result=$(cat "$result_file")
-      results=$(echo "$results" | jq ". += [$result]" 2>/dev/null || echo "[$result]")
+      results=$(json_merge "$results" "[$result]")
     fi
   done
 
@@ -470,15 +567,15 @@ build_manager_execute_build() {
 
   # Parse build specification
   local docker_image
-  docker_image=$(echo "$build_spec_json" | jq -r '.docker_image' 2>/dev/null)
+  docker_image=$(json_get "$build_spec_json" '.docker_image')
   local build_command
-  build_command=$(echo "$build_spec_json" | jq -r '.build_command' 2>/dev/null)
+  build_command=$(json_get "$build_spec_json" '.build_command')
   local install_deps_cmd
-  install_deps_cmd=$(echo "$build_spec_json" | jq -r '.install_dependencies_command // empty' 2>/dev/null)
+  install_deps_cmd=$(json_get "$build_spec_json" '.install_dependencies_command // empty')
   local working_dir
-  working_dir=$(echo "$build_spec_json" | jq -r '.working_directory // "/workspace"' 2>/dev/null)
+  working_dir=$(json_get "$build_spec_json" '.working_directory // "/workspace"')
   local cpu_cores
-  cpu_cores=$(echo "$build_spec_json" | jq -r '.cpu_cores // empty' 2>/dev/null)
+  cpu_cores=$(json_get "$build_spec_json" '.cpu_cores // empty')
 
   # Set CPU cores
   if [[ -z "$cpu_cores" ]] || [[ "$cpu_cores" == "null" ]]; then
@@ -523,7 +620,7 @@ build_manager_execute_build() {
 
   # Add environment variables
   local env_vars
-  env_vars=$(echo "$build_spec_json" | jq -r '.environment_variables // {} | to_entries[] | (.key + "=" + .value)' 2>/dev/null)
+  env_vars=$(json_get "$build_spec_json" '.environment_variables // {} | to_entries[] | (.key + "=" + .value)')
   if [[ -n "$env_vars" ]]; then
     while IFS= read -r env_var; do
       if [[ -n "$env_var" ]]; then
@@ -534,7 +631,7 @@ build_manager_execute_build() {
 
   # Add volume mounts
   local volume_mounts
-  volume_mounts=$(echo "$build_spec_json" | jq -r '.volume_mounts[]? | (.host_path + ":" + .container_path)' 2>/dev/null)
+  volume_mounts=$(json_get "$build_spec_json" '.volume_mounts[]? | (.host_path + ":" + .container_path)')
   if [[ -n "$volume_mounts" ]]; then
     while IFS= read -r volume_mount; do
       if [[ -n "$volume_mount" ]]; then
@@ -572,7 +669,7 @@ build_manager_execute_build() {
   "container_id": "$container_name",
   "exit_code": $exit_code,
   "cpu_cores_used": $cpu_cores,
-  "output": "$(cat "$output_file" | jq -R -s .)",
+  "output": "$(json_escape "$(cat "$output_file")")",
   "error": $( [[ $exit_code -eq 0 ]] && echo "null" || echo "\"Build failed with exit code $exit_code\"" )
 }
 EOF
@@ -593,7 +690,7 @@ EOF
 build_manager_execute_build_async() {
   local build_spec_json="$1"
   local framework
-  framework=$(echo "$build_spec_json" | jq -r '.framework' 2>/dev/null)
+  framework=$(json_get "$build_spec_json" '.framework')
 
   build_manager_execute_build "$build_spec_json" "$framework" > /dev/null
 }
@@ -650,7 +747,17 @@ EOF
 
   # Get build requirements for this framework
   local framework_req
-  framework_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$framework\")" 2>/dev/null)
+  # Find the framework requirement
+  local req_count
+  req_count=$(json_array_length "$build_requirements_json")
+  for ((j=0; j<req_count; j++)); do
+    local temp_framework
+    temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+    if [[ "$temp_framework" == "$framework" ]]; then
+      framework_req=$(json_array_get "$build_requirements_json" "$j")
+      break
+    fi
+  done
 
   if [[ -z "$framework_req" ]] || [[ "$framework_req" == "null" ]]; then
     echo "{\"error\": \"No build requirements found for framework $framework\"}"
@@ -676,9 +783,9 @@ EOF
 
   # Copy source code and test files to build directory
   local source_code
-  source_code=$(echo "$framework_req" | jq -r '.artifact_storage.source_code[]?' 2>/dev/null)
+  source_code=$(json_get_array "$framework_req" ".artifact_storage.source_code")
   local test_suites
-  test_suites=$(echo "$framework_req" | jq -r '.artifact_storage.test_suites[]?' 2>/dev/null)
+  test_suites=$(json_get_array "$framework_req" ".artifact_storage.test_suites")
 
   # For integration tests, create minimal source/test structure if it doesn't exist
   if [[ -n "${SUITEY_INTEGRATION_TEST:-}" ]]; then
@@ -711,15 +818,15 @@ build_manager_generate_dockerfile() {
 
   # Get base image from build steps
   local base_image
-  base_image=$(echo "$build_req_json" | jq -r '.build_steps[0].docker_image' 2>/dev/null)
+  base_image=$(json_get "$build_req_json" '.build_steps[0].docker_image')
 
   # Get artifact storage requirements
   local artifacts
-  artifacts=$(echo "$build_req_json" | jq -r '.artifact_storage.artifacts[]?' 2>/dev/null)
+  artifacts=$(json_get_array "$build_req_json" ".artifact_storage.artifacts")
   local source_code
-  source_code=$(echo "$build_req_json" | jq -r '.artifact_storage.source_code[]?' 2>/dev/null)
+  source_code=$(json_get_array "$build_req_json" ".artifact_storage.source_code")
   local test_suites
-  test_suites=$(echo "$build_req_json" | jq -r '.artifact_storage.test_suites[]?' 2>/dev/null)
+  test_suites=$(json_get_array "$build_req_json" ".artifact_storage.test_suites")
 
   # Generate Dockerfile
   cat > "$dockerfile_path" << EOF
@@ -770,7 +877,7 @@ build_manager_build_test_image() {
   "image_name": "$image_name",
   "image_id": "$image_id",
   "dockerfile_path": "$dockerfile_path",
-  "output": "$(cat "$output_file" | jq -R -s .)"
+  "output": "$(json_escape "$(cat "$output_file")")"
 }
 EOF
       )
@@ -783,7 +890,7 @@ EOF
   "success": false,
   "image_name": "$image_name",
   "error": "Failed to build Docker image",
-  "output": "$(cat "$output_file" | jq -R -s .)"
+  "output": "$(json_escape "$(cat "$output_file")")"
 }
 EOF
       )
@@ -804,7 +911,7 @@ EOF
   "image_name": "$image_name",
   "image_id": "$image_id",
   "dockerfile_path": "$dockerfile_path",
-  "output": "$(cat "$output_file" | jq -R -s .)"
+  "output": "$(json_escape "$(cat "$output_file")")"
 }
 EOF
       )
@@ -817,7 +924,7 @@ EOF
   "success": false,
   "image_name": "$image_name",
   "error": "Failed to build Docker image",
-  "output": "$(cat "$output_file" | jq -R -s .)"
+  "output": "$(json_escape "$(cat "$output_file")")"
 }
 EOF
       )
@@ -842,7 +949,17 @@ build_manager_launch_container() {
 
   # Get build requirements for framework
   local build_req
-  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$framework\")" 2>/dev/null)
+  # Find the build requirement for this framework
+  local req_count
+  req_count=$(json_array_length "$build_requirements_json")
+  for ((j=0; j<req_count; j++)); do
+    local temp_framework
+    temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+    if [[ "$temp_framework" == "$framework" ]]; then
+      build_req=$(json_array_get "$build_requirements_json" "$j")
+      break
+    fi
+  done
 
   if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
     echo ""
@@ -858,14 +975,14 @@ build_manager_launch_container() {
 
   # Get build step configuration
   local build_step
-  build_step=$(echo "$build_req" | jq '.build_steps[0]' 2>/dev/null)
+  build_step=$(json_get "$build_req" '.build_steps[0]')
 
   local docker_image
-  docker_image=$(echo "$build_step" | jq -r '.docker_image' 2>/dev/null)
+  docker_image=$(json_get "$build_step" '.docker_image')
   local cpu_cores
-  cpu_cores=$(echo "$build_step" | jq -r '.cpu_cores // empty' 2>/dev/null)
+  cpu_cores=$(json_get "$build_step" '.cpu_cores // empty')
   local working_dir
-  working_dir=$(echo "$build_step" | jq -r '.working_directory // "/workspace"' 2>/dev/null)
+  working_dir=$(json_get "$build_step" '.working_directory // "/workspace"')
 
   if [[ -z "$cpu_cores" ]] || [[ "$cpu_cores" == "null" ]]; then
     cpu_cores=$(build_manager_get_cpu_cores)
@@ -952,7 +1069,17 @@ build_manager_track_status() {
 
   # Get build requirements for framework
   local build_req
-  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$framework\")" 2>/dev/null)
+  # Find the build requirement for this framework
+  local req_count
+  req_count=$(json_array_length "$build_requirements_json")
+  for ((j=0; j<req_count; j++)); do
+    local temp_framework
+    temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+    if [[ "$temp_framework" == "$framework" ]]; then
+      build_req=$(json_array_get "$build_requirements_json" "$j")
+      break
+    fi
+  done
 
   if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
     echo "{\"error\": \"No build requirements found for framework $framework\"}"
@@ -968,7 +1095,7 @@ build_manager_track_status() {
 
   # Update final status
   local status
-  status=$(echo "$result" | jq -r '.status' 2>/dev/null)
+  status=$(json_get "$result" '.status')
   build_manager_update_build_status "$framework" "$status"
 
   echo "$result"
@@ -986,7 +1113,11 @@ build_manager_update_build_status() {
     local current_status
     current_status=$(cat "$BUILD_MANAGER_BUILD_STATUS_FILE")
     local updated_status
-    updated_status=$(echo "$current_status" | jq ".\"$framework\" = \"$status\"" 2>/dev/null || echo "{\"$framework\": \"$status\"}")
+    if [[ "$current_status" == "{}" ]]; then
+      updated_status="{\"$framework\": \"$status\"}"
+    else
+      updated_status=$(json_set "$current_status" ".\"$framework\"" "\"$status\"")
+    fi
     echo "$updated_status" > "$BUILD_MANAGER_BUILD_STATUS_FILE"
   fi
 }
@@ -1116,32 +1247,34 @@ build_manager_validate_requirements() {
   local build_requirements_json="$1"
 
   # Check if it's valid JSON
-  if ! echo "$build_requirements_json" | jq . >/dev/null 2>&1; then
+  if ! json_validate "$build_requirements_json"; then
     echo "ERROR: Invalid JSON in build requirements" >&2
     return 1
   fi
 
   # Check if it's an array
-  if ! echo "$build_requirements_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  if ! json_is_array "$build_requirements_json"; then
     echo "ERROR: Build requirements must be a JSON array" >&2
     return 1
   fi
 
   # Check each build requirement has required fields
   local count
-  count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null)
+  count=$(json_array_length "$build_requirements_json")
 
   for ((i=0; i<count; i++)); do
     local req
-    req=$(echo "$build_requirements_json" | jq ".[$i]" 2>/dev/null)
+    req=$(json_array_get "$build_requirements_json" "$i")
 
     # Check for required fields
-    if ! echo "$req" | jq -e '.framework' >/dev/null 2>&1; then
+    if ! json_has_field "$req" "framework"; then
       echo "ERROR: Build requirement missing 'framework' field" >&2
       return 1
     fi
 
-    if ! echo "$req" | jq -e '.build_steps and (.build_steps | type == "array")' >/dev/null 2>&1; then
+    local build_steps
+    build_steps=$(json_get "$req" ".build_steps")
+    if ! json_is_array "$build_steps"; then
       echo "ERROR: Build requirement missing valid 'build_steps' array" >&2
       return 1
     fi
@@ -1177,7 +1310,17 @@ build_manager_process_adapter_build_steps() {
 
   # Get build requirements for framework
   local build_req
-  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$framework\")" 2>/dev/null)
+  # Find the build requirement for this framework
+  local req_count
+  req_count=$(json_array_length "$build_requirements_json")
+  for ((j=0; j<req_count; j++)); do
+    local temp_framework
+    temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+    if [[ "$temp_framework" == "$framework" ]]; then
+      build_req=$(json_array_get "$build_requirements_json" "$j")
+      break
+    fi
+  done
 
   if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
     echo "{}"
@@ -1185,7 +1328,7 @@ build_manager_process_adapter_build_steps() {
   fi
 
   # Return build steps
-  echo "$build_req" | jq '.build_steps' 2>/dev/null
+  json_get "$build_req" '.build_steps'
 }
 
 # Coordinate with Project Scanner
@@ -1212,7 +1355,7 @@ build_manager_provide_results_to_scanner() {
   local build_results_json="$1"
 
   # Validate results structure
-  if echo "$build_results_json" | jq . >/dev/null 2>&1; then
+  if json_validate "$build_results_json"; then
     echo '{"status": "results_received", "processed": true}'
   else
     echo '{"status": "error", "processed": false}'
@@ -1229,7 +1372,19 @@ build_manager_execute_with_adapter_specs() {
   local framework="$2"
 
   # Execute build using adapter specifications
-  build_manager_execute_build "$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$framework\")" 2>/dev/null)" "$framework"
+  # Find the build requirement for this framework
+  local build_req=""
+  local req_count
+  req_count=$(json_array_length "$build_requirements_json")
+  for ((j=0; j<req_count; j++)); do
+    local temp_framework
+    temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
+    if [[ "$temp_framework" == "$framework" ]]; then
+      build_req=$(json_array_get "$build_requirements_json" "$j")
+      break
+    fi
+  done
+  build_manager_execute_build "$build_req" "$framework"
 }
 
 # Pass test image metadata to adapters
@@ -1242,7 +1397,7 @@ build_manager_pass_image_metadata_to_adapter() {
   local framework="$2"
 
   # Validate metadata
-  if echo "$test_image_metadata_json" | jq . >/dev/null 2>&1; then
+  if json_validate "$test_image_metadata_json"; then
     echo '{"status": "metadata_passed", "framework": "'$framework'", "received": true}'
   else
     echo '{"status": "error", "framework": "'$framework'", "received": false}'
@@ -1271,7 +1426,7 @@ build_manager_execute_multi_framework() {
 
   # Count frameworks in requirements
   local framework_count
-  framework_count=$(echo "$build_requirements_json" | jq length 2>/dev/null || echo "1")
+  framework_count=$(json_array_length "$build_requirements_json")
 
   # Return appropriate output for parallel execution test
   echo "Executing $framework_count frameworks in parallel. Independent builds completed without interference."
@@ -1399,7 +1554,7 @@ build_manager_build_multi_framework_real() {
 
   # Count frameworks in requirements
   local framework_count
-  framework_count=$(echo "$build_requirements_json" | jq length 2>/dev/null || echo "1")
+  framework_count=$(json_array_length "$build_requirements_json")
 
   # Return output that matches test expectations
   echo "Building $framework_count frameworks simultaneously with real Docker operations. Parallel concurrent execution completed successfully. independent builds executed without interference."

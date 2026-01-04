@@ -4,6 +4,23 @@ load ../helpers/adapter_registry
 load ../helpers/fixtures
 
 # ============================================================================
+# JSON Helper Functions (for test assertions)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_has_field() {
+  local json="$1"
+  local field="$2"
+  echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
+}
+
+# ============================================================================
 # Adapter Registration Tests
 # ============================================================================
 
@@ -324,17 +341,23 @@ load ../helpers/fixtures
   fi
 
   # Verify specific fields are preserved
-  if ! echo "$output_after" | grep -q '"name".*"Test Adapter"'; then
+  local name_field
+  name_field=$(json_test_get "$output_after" '.name')
+  if [[ "$name_field" != "Test Adapter" ]]; then
     echo "ERROR: 'name' field not preserved correctly"
+    echo "Expected: Test Adapter, Got: $name_field"
     return 1
   fi
 
-  if ! echo "$output_after" | grep -q '"identifier".*"test_adapter"'; then
+  local identifier_field
+  identifier_field=$(json_test_get "$output_after" '.identifier')
+  if [[ "$identifier_field" != "test_adapter" ]]; then
     echo "ERROR: 'identifier' field not preserved correctly"
+    echo "Expected: test_adapter, Got: $identifier_field"
     return 1
   fi
 
-  if ! echo "$output_after" | grep -q '"capabilities"'; then
+  if ! json_test_has_field "$output_after" "capabilities"; then
     echo "ERROR: 'capabilities' field not preserved correctly"
     return 1
   fi
@@ -408,13 +431,19 @@ EOF
   assert_adapter_found "$output_after" "special_adapter"
 
   # Verify special characters are preserved
-  if ! echo "$output_after" | grep -q 'Test "Adapter"'; then
+  local name_field_special
+  name_field_special=$(json_test_get "$output_after" '.name')
+  if [[ "$name_field_special" != 'Test "Adapter"' ]]; then
     echo "ERROR: Quotes in metadata not preserved"
+    echo "Expected: Test \"Adapter\", Got: $name_field_special"
     return 1
   fi
 
-  if ! echo "$output_after" | grep -q 'Has = signs'; then
+  local description_field
+  description_field=$(json_test_get "$output_after" '.description')
+  if [[ "$description_field" != *"Has = signs"* ]]; then
     echo "ERROR: Equals signs in metadata not preserved"
+    echo "Expected to contain: Has = signs, Got: $description_field"
     return 1
   fi
 
@@ -490,7 +519,7 @@ EOF
   fi
 
   # Verify decoded value is valid JSON
-  if ! echo "$decoded_value" | grep -q '"name"'; then
+  if ! json_test_has_field "$decoded_value" "name"; then
     echo "ERROR: Decoded value is not valid JSON metadata" >&2
     echo "Decoded value: $decoded_value" >&2
     return 1
@@ -692,7 +721,7 @@ EOF
   fi
 
   # Verify it's valid JSON
-  if ! echo "$output" | grep -q '"name"'; then
+  if ! json_test_has_field "$output" "name"; then
     echo "ERROR: Returned value is not valid JSON metadata" >&2
     echo "Output: $output" >&2
     return 1
@@ -1305,7 +1334,9 @@ assert_adapters_available() {
   local output="$1"
 
   # Should have at least some adapters available
-  if ! echo "$output" | grep -E -q '"rust"|"bats"|"working_adapter"'; then
+  local adapters_list
+  adapters_list=$(json_test_get "$output" '.[]')
+  if [[ "$adapters_list" != *"rust"* ]] && [[ "$adapters_list" != *"bats"* ]] && [[ "$adapters_list" != *"working_adapter"* ]]; then
     echo "ERROR: No adapters available after initialization failure simulation"
     echo "Output: $output"
     return 1
@@ -1319,7 +1350,10 @@ assert_adapter_found_in_list() {
   local output="$1"
   local adapter_name="$2"
 
-  if ! echo "$output" | grep -q "\"$adapter_name\""; then
+  # Extract array elements and check if adapter_name is in the list
+  local adapters_list
+  adapters_list=$(json_test_get "$output" '.[]')
+  if [[ "$adapters_list" != *"$adapter_name"* ]]; then
     echo "ERROR: Adapter '$adapter_name' not found in list"
     echo "Output: $output"
     return 1

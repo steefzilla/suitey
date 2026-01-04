@@ -2,6 +2,30 @@
 # Helper functions for Adapter Registry tests
 
 # ============================================================================
+# JSON Helper Functions (will be replaced with shared helpers in Phase 2)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_has_field() {
+  local json="$1"
+  local field="$2"
+  echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
+}
+
+json_test_field_contains() {
+  local json="$1"
+  local field="$2"
+  local value="$3"
+  echo "$json" | jq -r ".$field" 2>/dev/null | grep -q "$value" 2>/dev/null
+}
+
+# ============================================================================
 # Setup/Teardown Functions
 # ============================================================================
 
@@ -794,7 +818,7 @@ assert_adapter_metadata() {
   local field="$3"
   local expected_value="$4"
 
-  if ! echo "$output" | grep -q "\"$field\".*\"$expected_value\""; then
+  if ! json_test_field_contains "$output" "$field" "$expected_value"; then
     echo "ERROR: Expected metadata field '$field' with value '$expected_value' for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -811,7 +835,7 @@ assert_adapter_metadata_structure() {
   local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries")
 
   for field in "${required_fields[@]}"; do
-    if ! echo "$output" | grep -q "\"$field\""; then
+    if ! json_test_has_field "$output" "$field"; then
       echo "ERROR: Expected required metadata field '$field' for adapter '$adapter_identifier'"
       echo "Output was: $output"
       return 1
@@ -827,7 +851,7 @@ assert_adapter_capabilities() {
   local adapter_identifier="$2"
   local expected_capability="$3"
 
-  if ! echo "$output" | grep -q "\"capabilities\".*\"$expected_capability\""; then
+  if ! json_test_field_contains "$output" "capabilities" "$expected_capability"; then
     echo "ERROR: Expected capability '$expected_capability' for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -1507,7 +1531,7 @@ assert_concurrent_access_handled() {
 assert_build_steps_has_install_dependencies() {
   local build_steps_json="$1"
 
-  if ! echo "$build_steps_json" | grep -q "install_dependencies_command"; then
+  if ! json_test_has_field "$build_steps_json" "install_dependencies_command"; then
     echo "ERROR: Expected install_dependencies_command field in build steps"
     echo "Build steps: $build_steps_json"
     return 1
@@ -1520,7 +1544,7 @@ assert_build_steps_has_install_dependencies() {
 assert_build_steps_has_cpu_cores() {
   local build_steps_json="$1"
 
-  if ! echo "$build_steps_json" | grep -q "cpu_cores"; then
+  if ! json_test_has_field "$build_steps_json" "cpu_cores"; then
     echo "ERROR: Expected cpu_cores field in build steps"
     echo "Build steps: $build_steps_json"
     return 1
@@ -1533,7 +1557,8 @@ assert_build_steps_has_cpu_cores() {
 assert_build_command_parallel() {
   local build_steps_json="$1"
 
-  if ! echo "$build_steps_json" | grep -q "jobs.*\$(nproc)"; then
+  jobs_value=$(json_test_get "$build_steps_json" '.build_command')
+  if [[ "$jobs_value" != *'jobs $(nproc)'* ]]; then
     echo "ERROR: Expected parallel build command with --jobs \$(nproc)"
     echo "Build steps: $build_steps_json"
     return 1
@@ -1559,7 +1584,7 @@ assert_build_steps_empty_array() {
 assert_execution_succeeded() {
   local execution_result_json="$1"
 
-  if ! echo "$execution_result_json" | grep -q '"exit_code"'; then
+  if ! json_test_has_field "$execution_result_json" "exit_code"; then
     echo "ERROR: Expected exit_code field in execution result"
     echo "Execution result: $execution_result_json"
     return 1
@@ -1572,7 +1597,7 @@ assert_execution_succeeded() {
 assert_execution_result_has_test_image() {
   local execution_result_json="$1"
 
-  if ! echo "$execution_result_json" | grep -q '"test_image"'; then
+  if ! json_test_has_field "$execution_result_json" "test_image"; then
     echo "ERROR: Expected test_image field in execution result"
     echo "Execution result: $execution_result_json"
     return 1
@@ -1585,7 +1610,7 @@ assert_execution_result_has_test_image() {
 assert_execution_result_no_build_artifacts() {
   local execution_result_json="$1"
 
-  if echo "$execution_result_json" | grep -q '"build_artifacts"'; then
+  if json_test_has_field "$execution_result_json" "build_artifacts"; then
     echo "ERROR: Should not contain build_artifacts field in execution result"
     echo "Execution result: $execution_result_json"
     return 1
@@ -1602,7 +1627,7 @@ assert_build_steps_valid_json() {
   local required_fields=("step_name" "docker_image" "install_dependencies_command" "build_command" "working_directory" "volume_mounts" "environment_variables" "cpu_cores")
 
   for field in "${required_fields[@]}"; do
-    if ! echo "$build_steps_json" | grep -q "\"$field\""; then
+    if ! json_test_has_field "$build_steps_json" "$field"; then
       echo "ERROR: Missing required field '$field' in build steps JSON"
       echo "Build steps: $build_steps_json"
       return 1
@@ -1620,7 +1645,7 @@ assert_execution_result_valid_json() {
   local required_fields=("exit_code" "duration" "output" "container_id" "execution_method" "test_image")
 
   for field in "${required_fields[@]}"; do
-    if ! echo "$execution_result_json" | grep -q "\"$field\""; then
+    if ! json_test_has_field "$execution_result_json" "$field"; then
       echo "ERROR: Missing required field '$field' in execution result JSON"
       echo "Execution result: $execution_result_json"
       return 1

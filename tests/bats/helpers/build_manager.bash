@@ -2,6 +2,22 @@
 # Helper functions for Build Manager tests
 
 # ============================================================================
+# JSON Helper Functions (will be replaced with shared helpers in Phase 2)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_validate() {
+  local json="$1"
+  echo "$json" | jq . >/dev/null 2>&1
+}
+
+# ============================================================================
 # Setup/Teardown Functions
 # ============================================================================
 
@@ -1011,7 +1027,7 @@ assert_dependency_analysis() {
   local expected_tiers="${2:-1}"
 
   # Check if output is valid JSON
-  if ! echo "$analysis_output" | jq . >/dev/null 2>&1; then
+  if ! json_test_validate "$analysis_output"; then
     echo "ERROR: Invalid JSON output from dependency analysis"
     echo "Analysis output: $analysis_output"
     return 1
@@ -1019,7 +1035,7 @@ assert_dependency_analysis() {
 
   # Count tier properties in the JSON
   local tier_count
-  tier_count=$(echo "$analysis_output" | jq 'keys | map(select(startswith("tier_"))) | length')
+  tier_count=$(json_test_get "$analysis_output" 'keys | map(select(startswith("tier_"))) | length')
 
   if [[ $tier_count -lt $expected_tiers ]]; then
     echo "ERROR: Expected at least $expected_tiers dependency tiers, found $tier_count"

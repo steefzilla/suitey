@@ -37,7 +37,7 @@ bats_adapter_detect() {
 
 # BATS adapter metadata function
 bats_adapter_get_metadata() {
-  local project_root="$1"
+  local project_root="${1:-}"  # Optional parameter for project-specific metadata
 
   # Build metadata JSON object
   local metadata_pairs=(
@@ -52,7 +52,7 @@ bats_adapter_get_metadata() {
     "test_directory_patterns" '["tests/bats/","test/bats/","tests/","test/"]'
   )
 
-  json_object "${metadata_pairs[@]}"
+  json_object "${metadata_pairs[@]}" | tr -d '\n'
 }
 
 # BATS adapter binary checking function

@@ -2,6 +2,15 @@
 # Adapter Registry
 # ============================================================================
 
+# Source JSON helper functions
+if [[ -f "json_helpers.sh" ]]; then
+  source "json_helpers.sh"
+elif [[ -f "src/json_helpers.sh" ]]; then
+  source "src/json_helpers.sh"
+elif [[ -f "../src/json_helpers.sh" ]]; then
+  source "../src/json_helpers.sh"
+fi
+
 # Registry Data Structures
 declare -A ADAPTER_REGISTRY                    # Maps adapter identifier -> metadata JSON
 declare -A ADAPTER_REGISTRY_CAPABILITIES       # Maps capability -> comma-separated adapter list
@@ -225,10 +234,25 @@ adapter_registry_load_state() {
     
     # Load ADAPTER_REGISTRY
     if [[ -f "$actual_registry_file" ]]; then
-      while IFS='=' read -r key encoded_value || [[ -n "$key" ]]; do
-        # Skip empty lines and malformed entries
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+
+        # Split on first '=' only (since base64 can contain '=')
+        key="${line%%=*}"
+        encoded_value="${line#*=}"
+
+        # Skip malformed entries
         if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-          if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null); then
+          decoded_value=""
+          # Try different base64 decoding variants
+          if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
+            : # Success with base64 -d
+          elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
+            : # Success with base64 --decode
+          fi
+
+          if [[ -n "$decoded_value" ]]; then
             ADAPTER_REGISTRY["$key"]="$decoded_value"
           else
             echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
@@ -240,10 +264,25 @@ adapter_registry_load_state() {
     # Load ADAPTER_REGISTRY_CAPABILITIES
     local capabilities_loaded=false
     if [[ -f "$actual_capabilities_file" ]]; then
-      while IFS='=' read -r key encoded_value || [[ -n "$key" ]]; do
-        # Skip empty lines and malformed entries
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+
+        # Split on first '=' only (since base64 can contain '=')
+        key="${line%%=*}"
+        encoded_value="${line#*=}"
+
+        # Skip malformed entries
         if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-          if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null); then
+          decoded_value=""
+          # Try different base64 decoding variants
+          if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
+            : # Success with base64 -d
+          elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
+            : # Success with base64 --decode
+          fi
+
+          if [[ -n "$decoded_value" ]]; then
             ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
             capabilities_loaded=true
           else
@@ -350,13 +389,14 @@ adapter_registry_extract_metadata() {
 
   # Call the adapter's metadata function and capture output
   # The function should output JSON metadata to stdout
-  # Note: get_metadata doesn't take any arguments
+  # For adapter registration, we call without project_root (general adapter info)
   local metadata_output
   metadata_output=$("$metadata_func" 2>&1)
   local exit_code=$?
 
   if [[ $exit_code -eq 0 ]] && [[ -n "$metadata_output" ]]; then
-    # Function succeeded and produced output, echo it for capture by caller
+    # Function succeeded and produced output, trim trailing newlines
+    metadata_output=$(echo -n "$metadata_output" | sed 's/[[:space:]]*$//')
     echo "$metadata_output"
     return 0
   else
@@ -384,14 +424,16 @@ adapter_registry_validate_metadata() {
 
   # Check that each required field is present
   for field in "${required_fields[@]}"; do
-    if ! echo "$metadata_json" | grep -q "\"$field\""; then
+    if ! json_has_field "$metadata_json" "$field"; then
       echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2
       return 1
     fi
   done
 
   # Check that identifier matches adapter identifier
-  if ! echo "$metadata_json" | grep -q "\"identifier\"[[:space:]]*:[[:space:]]*\"$adapter_identifier\""; then
+  local actual_identifier
+  actual_identifier=$(json_get "$metadata_json" ".identifier")
+  if [[ "$actual_identifier" != "$adapter_identifier" ]]; then
     echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2
     return 1
   fi
@@ -408,18 +450,12 @@ adapter_registry_index_capabilities() {
   local metadata_json="$2"
 
   # Extract capabilities from metadata JSON
-  # This is a simple extraction - look for capabilities array
-  local capabilities_part
-  capabilities_part=$(echo "$metadata_json" | grep -o '"capabilities"[[:space:]]*:[[:space:]]*\[[^]]*\]' || echo "")
+  local capabilities
+  capabilities=$(json_get_array "$metadata_json" ".capabilities")
 
-  if [[ -n "$capabilities_part" ]]; then
-    # Extract capability names from the array (simplified parsing)
-    local capabilities
-    capabilities=$(echo "$capabilities_part" | grep -o '"[^"]*"' | sed 's/"//g' | tr '\n' ',' | sed 's/,$//')
-
-    # Index each capability
-    IFS=',' read -ra cap_array <<< "$capabilities"
-    for cap in "${cap_array[@]}"; do
+  if [[ -n "$capabilities" ]]; then
+    # Split capabilities by newline and index each capability
+    while IFS= read -r cap; do
       if [[ -n "$cap" ]]; then
         # Add adapter to capability index
         if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES["$cap"] ]]; then
@@ -428,7 +464,7 @@ adapter_registry_index_capabilities() {
           ADAPTER_REGISTRY_CAPABILITIES["$cap"]="${ADAPTER_REGISTRY_CAPABILITIES["$cap"]},$adapter_identifier"
         fi
       fi
-    done
+    done <<< "$capabilities"
   fi
 }
 

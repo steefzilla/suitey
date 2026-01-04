@@ -18,6 +18,40 @@ fi
 source "$suitey_script"
 
 # ============================================================================
+# Test Helper Functions (will be replaced with shared helpers in Phase 2)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now, will be replaced)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_array_length() {
+  local json="$1"
+  echo "$json" | jq 'length' 2>/dev/null || echo "0"
+}
+
+json_test_array_get() {
+  local json="$1"
+  local index="$2"
+  echo "$json" | jq ".[$index]" 2>/dev/null || echo "null"
+}
+
+json_test_validate() {
+  local json="$1"
+  echo "$json" | jq . >/dev/null 2>&1
+}
+
+json_test_extract_build_spec() {
+  local build_requirements="$1"
+  local framework_index="${2:-0}"
+  local step_index="${3:-0}"
+  echo "$build_requirements" | jq ".[$framework_index].build_steps[$step_index]" 2>/dev/null || echo "null"
+}
+
+# ============================================================================
 # Initialization Tests
 # ============================================================================
 
@@ -162,7 +196,8 @@ source "$suitey_script"
   output=$(build_manager_analyze_dependencies "$build_requirements")
 
   # Should identify all as parallel candidates (all in tier_0)
-  echo "$output" | jq -e '(.tier_0 | length) == 3' >/dev/null
+  tier_0_length=$(json_test_get "$output" '.tier_0 | length')
+  [ "$tier_0_length" == "3" ]
 
   teardown_build_manager_test
 }
@@ -181,7 +216,9 @@ source "$suitey_script"
 
   # Should determine execution order (lib before app)
   # Check that lib is in tier_0 and app is in tier_1
-  echo "$output" | jq -e '(.tier_0 | index("lib")) != null and (.tier_1 | index("app")) != null' >/dev/null
+  tier_0_has_lib=$(json_test_get "$output" '.tier_0 | index("lib")')
+  tier_1_has_app=$(json_test_get "$output" '.tier_1 | index("app")')
+  [ "$tier_0_has_lib" != "null" ] && [ "$tier_1_has_app" != "null" ]
 
   teardown_build_manager_test
 }
@@ -200,7 +237,7 @@ source "$suitey_script"
   output=$(build_manager_orchestrate "$build_requirements")
 
   # Should accept and process build requirements (return valid JSON)
-  echo "$output" | jq . >/dev/null
+  json_test_validate "$output"
 
   teardown_build_manager_test
 }
@@ -235,7 +272,8 @@ source "$suitey_script"
   output=$(build_manager_orchestrate "$build_requirements")
 
   # Should handle empty list gracefully (return empty array)
-  echo "$output" | jq -e '. == []' >/dev/null
+  output_length=$(json_test_array_length "$output")
+  [ "$output_length" == "0" ]
 
   teardown_build_manager_test
 }
@@ -273,7 +311,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function
   docker_run() { mock_docker_run "$@"; }
@@ -304,7 +342,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements "rust" "with_dependencies")
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function
   docker_run() { mock_docker_run "$@"; }
@@ -331,13 +369,13 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements "rust" "with_dependencies")
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function with dependency context
   docker_run() {
     # Check if this looks like dependency installation (has install command)
     local install_cmd
-    install_cmd=$(echo "$build_spec" | jq -r '.install_dependencies_command // empty' 2>/dev/null)
+    install_cmd=$(json_test_get "$build_spec" '.install_dependencies_command // empty')
     if [[ -n "$install_cmd" ]] && [[ "$install_cmd" != "null" ]]; then
       mock_docker_run "$@" 0 "Dependencies installed successfully. Build command executed."
     else
@@ -361,7 +399,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function that includes build command in output
   docker_run() { mock_docker_run "$@" 0 "Executing: rust build --jobs 4"; }
@@ -382,7 +420,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function
   docker_run() { mock_docker_run "$@"; }
@@ -403,7 +441,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function
   docker_run() { mock_docker_run "$@"; }
@@ -424,7 +462,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker run function that fails
   docker_run() { mock_docker_run "$1" "$2" "$3" "1" "Build failed"; }
@@ -449,7 +487,7 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Extract build spec for rust (the build_steps[0])
-  build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
 
   # Mock Docker functions with artifact extraction simulation
   docker_run() { mock_docker_run "$@" 0 "Build completed successfully"; }
@@ -605,7 +643,8 @@ source "$suitey_script"
   fi
 
   # Should handle build failure
-  [ $status -ne 0 ] && echo "$output" | jq -e '.success == false' >/dev/null
+  success_value=$(json_test_get "$output" '.success')
+  [ $status -ne 0 ] && [ "$success_value" == "false" ]
 
   teardown_build_manager_test
 }

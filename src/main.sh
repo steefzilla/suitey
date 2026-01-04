@@ -2,6 +2,15 @@
 # Help Text
 # ============================================================================
 
+# Source JSON helper functions
+if [[ -f "json_helpers.sh" ]]; then
+  source "json_helpers.sh"
+elif [[ -f "src/json_helpers.sh" ]]; then
+  source "src/json_helpers.sh"
+elif [[ -f "../src/json_helpers.sh" ]]; then
+  source "../src/json_helpers.sh"
+fi
+
 show_help() {
   cat << 'EOF'
 Suitey Project Scanner

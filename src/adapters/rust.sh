@@ -36,7 +36,7 @@ rust_adapter_detect() {
 
 # Rust adapter metadata function
 rust_adapter_get_metadata() {
-  local project_root="$1"
+  local project_root="${1:-}"  # Optional parameter for project-specific metadata
 
   # Build metadata JSON object
   local metadata_pairs=(
@@ -51,7 +51,7 @@ rust_adapter_get_metadata() {
     "test_directory_patterns" '["src/","tests/"]'
   )
 
-  json_object "${metadata_pairs[@]}"
+  json_object "${metadata_pairs[@]}" | tr -d '\n'
 }
 
 # Rust adapter binary checking function

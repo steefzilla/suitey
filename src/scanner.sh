@@ -2,6 +2,15 @@
 # Main Scanner Functions
 # ============================================================================
 
+# Source JSON helper functions
+if [[ -f "json_helpers.sh" ]]; then
+  source "json_helpers.sh"
+elif [[ -f "src/json_helpers.sh" ]]; then
+  source "src/json_helpers.sh"
+elif [[ -f "../src/json_helpers.sh" ]]; then
+  source "../src/json_helpers.sh"
+fi
+
 # Scan project for test frameworks and suites
 scan_project() {
   echo "Scanning project: $PROJECT_ROOT" >&2
