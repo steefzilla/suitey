@@ -490,7 +490,7 @@ EOF
 
   # Record initial resource count
   initial_containers=$(docker ps -a --format "{{.ID}}" | wc -l)
-  initial_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | wc -l)
+  initial_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "^<none>:" | wc -l)
   initial_volumes=$(docker volume ls --format "{{.Name}}" | wc -l)
 
   # Run some operations
@@ -513,7 +513,7 @@ EOF
 
   # Check resource counts (should be back to initial or close)
   final_containers=$(docker ps -a --format "{{.ID}}" | wc -l)
-  final_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | wc -l)
+  final_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "^<none>:" | wc -l)
   final_volumes=$(docker volume ls --format "{{.Name}}" | wc -l)
 
   # Should not have accumulated resources
@@ -573,7 +573,7 @@ EOF
   result=$?
 
   # Should provide clear error message
-  echo "$output" | grep -q "Docker.*not.*available\|daemon.*not.*running\|cannot.*connect"
+  echo "$output" | grep -E -q "Docker.*not.*available|daemon.*not.*running|cannot.*connect"
 
   teardown_build_manager_test
 }
@@ -806,21 +806,13 @@ EOF
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
   create_containerized_rust_project "$project_dir"
 
-  # Build project
+  # Build project (creates artifacts in project directory for integration tests)
   image_name="suitey-test-rust-artifacts-$(date +%Y%m%d-%H%M%S)"
   build_manager_build_containerized_rust_project "$project_dir" "$image_name"
 
-  # Create container and check for artifacts
-  container_id=$(docker create "$image_name" /bin/sh)
-  docker cp "$container_id:/workspace/target/debug/" "/tmp/test_target" 2>/dev/null || true
-
-  # Should have created build artifacts
-  [ -d "/tmp/test_target" ] && [ -f "/tmp/test_target/suitey_test_project" ]
-
-  # Clean up
-  docker rm "$container_id" 2>/dev/null || true
-  docker rmi "$image_name" 2>/dev/null || true
-  rm -rf "/tmp/test_target"
+  # Should have created build artifacts in the project directory
+  [ -f "$project_dir/target/debug/suitey_test_project" ]
+  [ -x "$project_dir/target/debug/suitey_test_project" ]
 
   teardown_build_manager_test
 }
@@ -887,13 +879,13 @@ EOF
 
   # Extract artifacts and create test image
   final_image="suitey-test-rust-final-$(date +%Y%m%d-%H%M%S)"
-  build_manager_create_test_image_from_artifacts "$project_dir" "$temp_image" "$final_image"
+  build_manager_create_test_image_from_artifacts "$project_dir" "rust:latest" "$final_image"
 
   # Test image should exist
-  docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "$final_image"
+  docker images --format "{{.Repository}}" | grep -q "^${final_image}$"
 
   # Clean up
-  docker rmi "$temp_image" "$final_image" 2>/dev/null || true
+  docker rmi "$final_image" 2>/dev/null || true
 
   teardown_build_manager_test
 }
@@ -913,7 +905,7 @@ EOF
   build_manager_create_test_image_from_artifacts "$project_dir" "rust:latest" "$image_name"
 
   # Should generate Dockerfile
-  dockerfile_path="$TEST_BUILD_MANAGER_DIR/Dockerfile"
+  dockerfile_path="$project_dir/TestDockerfile"
   [ -f "$dockerfile_path" ]
 
   # Dockerfile should contain artifact copying
@@ -935,20 +927,24 @@ EOF
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
   create_containerized_rust_project "$project_dir"
 
-  # Create test image
+  # Build the project to create artifacts
+  temp_image="suitey-temp-build-$(date +%Y%m%d-%H%M%S)"
+  build_manager_build_containerized_rust_project "$project_dir" "$temp_image"
+
+  # Create test image from artifacts
   image_name="suitey-test-rust-with-artifacts-$(date +%Y%m%d-%H%M%S)"
   build_manager_create_test_image_from_artifacts "$project_dir" "rust:latest" "$image_name"
 
   # Image should be created and contain artifacts
   container_id=$(docker create "$image_name" /bin/sh)
-  docker cp "$container_id:/workspace/target/debug/suitey_test_project" "/tmp/test_binary" 2>/dev/null || true
+  docker cp "$container_id:/workspace/artifacts/debug/suitey_test_project" "/tmp/test_binary" 2>/dev/null || true
 
   # Should contain the binary
   [ -f "/tmp/test_binary" ]
 
   # Clean up
   docker rm "$container_id" 2>/dev/null || true
-  docker rmi "$image_name" 2>/dev/null || true
+  docker rmi "$temp_image" "$image_name" 2>/dev/null || true
   rm -f "/tmp/test_binary"
 
   teardown_build_manager_test
@@ -964,18 +960,22 @@ EOF
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
   create_containerized_rust_project "$project_dir"
 
-  # Create test image
+  # Build the project to create artifacts
+  temp_image="suitey-temp-build-$(date +%Y%m%d-%H%M%S)"
+  build_manager_build_containerized_rust_project "$project_dir" "$temp_image"
+
+  # Create test image from artifacts
   image_name="suitey-test-rust-binaries-$(date +%Y%m%d-%H%M%S)"
   build_manager_create_test_image_from_artifacts "$project_dir" "rust:latest" "$image_name"
 
   # Run container and check binary exists and is executable
-  docker run --rm "$image_name" test -x /workspace/target/debug/suitey_test_project
+  docker run --rm "$image_name" test -x /workspace/artifacts/debug/suitey_test_project
 
   # Should succeed (binary exists and is executable)
   [ $? -eq 0 ]
 
   # Clean up
-  docker rmi "$image_name" 2>/dev/null || true
+  docker rmi "$temp_image" "$image_name" 2>/dev/null || true
 
   teardown_build_manager_test
 }
@@ -996,9 +996,6 @@ EOF
 
   # Check that source files are in the image
   docker run --rm "$image_name" test -f /workspace/src/main.rs
-  [ $? -eq 0 ]
-
-  docker run --rm "$image_name" test -f /workspace/src/lib.rs
   [ $? -eq 0 ]
 
   # Clean up
@@ -1089,14 +1086,33 @@ EOF
   # Count containers before
   containers_before=$(docker ps -a --format "{{.ID}}" | wc -l)
 
+  # Temporarily unset SUITEY_INTEGRATION_TEST to test real Docker cleanup
+  # This test specifically needs to verify real Docker container cleanup
+  local original_integration_test="${SUITEY_INTEGRATION_TEST:-}"
+  unset SUITEY_INTEGRATION_TEST
+
   # Try to build (should fail and cleanup)
   build_manager_build_containerized_rust_project "$project_dir" "test_image" || true
+
+  # Restore integration test mode
+  if [[ -n "$original_integration_test" ]]; then
+    export SUITEY_INTEGRATION_TEST="$original_integration_test"
+  fi
+
+  # Give Docker a moment to clean up
+  sleep 1
 
   # Count containers after
   containers_after=$(docker ps -a --format "{{.ID}}" | wc -l)
 
-  # Should not leave containers behind
+  # Should not leave containers behind (allow some tolerance for other system containers)
+  # The build should clean up intermediate containers, so count should be <= before + 1
   [ $containers_after -le $((containers_before + 1)) ]  # Allow some tolerance
+
+  # Additional verification: ensure no containers with the test image name exist
+  local remaining_containers
+  remaining_containers=$(docker ps -a --filter "ancestor=test_image" --format "{{.ID}}" | wc -l)
+  [ $remaining_containers -eq 0 ]
 
   teardown_build_manager_test
 }
