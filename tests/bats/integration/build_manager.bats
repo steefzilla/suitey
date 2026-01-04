@@ -94,7 +94,7 @@ build_manager_initialize >/dev/null 2>&1 || true
   container_id=$(build_manager_launch_container "$build_requirements" "rust")
 
   # Should create real container
-  docker ps -a --format "table {{.ID}}" | grep -q "$container_id"
+  [ -n "$(docker ps -a --filter id="$container_id" --format "{{.ID}}")" ]
 
   # Clean up
   docker rm -f "$container_id" 2>/dev/null || true
@@ -164,7 +164,7 @@ build_manager_initialize >/dev/null 2>&1 || true
   container_id=$(build_manager_launch_container "$build_requirements" "rust")
 
   # Container should exist
-  docker ps -a --format "table {{.ID}}" | grep -q "$container_id"
+  [ -n "$(docker ps -a --filter id="$container_id" --format "{{.ID}}")" ]
 
   # Stop container
   build_manager_stop_container "$container_id"
