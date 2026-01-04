@@ -4,13 +4,23 @@
 # Base64 Compatibility and Variant Tests
 # ============================================================================
 
-# Global platform detection - set once per test file
-export BATS_PLATFORM="unknown"
-
-setup_file() {
-  # Simple platform detection for this environment
-  export BATS_PLATFORM="linux"  # Default to linux for this test environment
-}
+# Global platform detection - set at file load time (not in setup_file)
+# This ensures the variable is available when skip conditions are evaluated
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  export BATS_PLATFORM="macos"
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux-musl"* ]] || [[ "$OSTYPE" == "linux"* ]]; then
+  export BATS_PLATFORM="linux"
+elif [[ -n "${OS:-}" ]] && [[ "$OS" == "Windows_NT" ]]; then
+  export BATS_PLATFORM="windows"
+else
+  # Fallback to uname if OSTYPE isn't set
+  uname_os=$(uname -s 2>/dev/null || echo "unknown")
+  case "$uname_os" in
+    Darwin) export BATS_PLATFORM="macos" ;;
+    Linux) export BATS_PLATFORM="linux" ;;
+    *) export BATS_PLATFORM="unknown" ;;
+  esac
+fi
 
 @test "base64 supports GNU-style -w 0 option" {
   run bash -c "echo 'test' | base64 -w 0"

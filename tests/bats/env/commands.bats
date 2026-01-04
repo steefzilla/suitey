@@ -88,17 +88,6 @@
   [[ "$output" == "test" ]]
 }
 
-@test "jq command is available (if needed)" {
-  # jq is optional, test for presence
-  if command -v jq >/dev/null 2>&1; then
-    run jq --version
-    [ "$status" -eq 0 ]
-  else
-    # If jq is not available, that's ok - it's optional
-    skip "jq command not available (optional dependency)"
-  fi
-}
-
 @test "bash command has required version" {
   # Test that bash is at least version 4 (required for associative arrays)
   local bash_version

@@ -4,18 +4,25 @@
 # Docker Environment Checks
 # ============================================================================
 
-# Global Docker availability detection
-BATS_DOCKER_AVAILABLE=false
+# Global Docker availability detection - set at file load time
+# This ensures the variable is available when skip conditions are evaluated
+export BATS_DOCKER_AVAILABLE=false
 
-setup_file() {
-  # Check if Docker command exists and daemon is accessible
-  if command -v docker >/dev/null 2>&1; then
-    # Quick check if Docker daemon is accessible (timeout to avoid hanging)
-    if timeout 5 docker info >/dev/null 2>&1; then
-      BATS_DOCKER_AVAILABLE=true
+# Check if Docker command exists and daemon is accessible
+if command -v docker >/dev/null 2>&1; then
+  # Quick check if Docker daemon is accessible
+  # Try without timeout first (docker info usually returns quickly if daemon isn't accessible)
+  if docker info >/dev/null 2>&1; then
+    export BATS_DOCKER_AVAILABLE=true
+  else
+    # If that fails, try with timeout if available (for systems where docker might hang)
+    if command -v timeout >/dev/null 2>&1; then
+      if timeout 5 docker info >/dev/null 2>&1; then
+        export BATS_DOCKER_AVAILABLE=true
+      fi
     fi
   fi
-}
+fi
 
 @test "docker daemon is running" {
   [[ "$BATS_DOCKER_AVAILABLE" == "true" ]] || skip "Docker not available"
@@ -129,7 +136,12 @@ setup_file() {
 @test "docker daemon accepts connections" {
   [[ "$BATS_DOCKER_AVAILABLE" == "true" ]] || skip "Docker not available"
   # Test that we can ping the docker daemon
-  run timeout 5 docker version
+  # Use timeout if available, otherwise just run docker version
+  if command -v timeout >/dev/null 2>&1; then
+    run timeout 5 docker version
+  else
+    run docker version
+  fi
   [ "$status" -eq 0 ]
 }
 
