@@ -6,6 +6,11 @@
 
 # Filesystem capability detection removed - using direct skip for known limitations
 
+# Ensure TMPDIR is set (BATS may not set it in single-job mode)
+setup_file() {
+  export TMPDIR="${TMPDIR:-/tmp}"
+}
+
 @test "/tmp directory exists and is writable" {
   [ -d "/tmp" ]
   [ -w "/tmp" ]
