@@ -1107,10 +1107,10 @@ EOF
 # Real Project Fixtures (for Integration Tests)
 # ============================================================================
 
-# Create a real Rust project for testing
-create_real_rust_project() {
+# Create a containerized Rust project for testing
+create_containerized_rust_project() {
   local base_dir="$1"
-  local project_name="${2:-real_rust_project}"
+  local project_name="${2:-containerized_rust_project}"
 
   # Create project root
   mkdir -p "$base_dir"

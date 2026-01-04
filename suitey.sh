@@ -3017,12 +3017,12 @@ build_manager_execute_dependent_builds() {
   build_manager_orchestrate "$build_requirements_json"
 }
 
-# Build real Rust project (integration test version)
+# Build containerized Rust project (integration test version)
 # Arguments:
 #   project_dir: project directory
 #   image_name: Docker image name to create
 # Returns: build result
-build_manager_build_real_rust_project() {
+build_manager_build_containerized_rust_project() {
   local project_dir="$1"
   local image_name="$2"
 

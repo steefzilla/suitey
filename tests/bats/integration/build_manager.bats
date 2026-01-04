@@ -752,18 +752,18 @@ EOF
 }
 
 # ============================================================================
-# Real Build Scenarios (Real Docker + Real Projects)
+# Containerized Build Scenarios (Docker + Projects)
 # ============================================================================
 
-@test "build_manager builds a real Rust project (REAL Docker + REAL Cargo) - creates actual Rust project with Cargo.toml" {
+@test "build_manager builds a containerized Rust project (Docker + Cargo) - creates actual Rust project with Cargo.toml" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
-  setup_build_manager_test "real_rust_project_test"
+  setup_build_manager_test "containerized_rust_project_test"
 
-  # Create a real Rust project
+  # Create a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Should create valid Rust project structure
   [ -f "$project_dir/Cargo.toml" ]
@@ -773,21 +773,21 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager builds a real Rust project (REAL Docker + REAL Cargo) - executes real cargo build in Docker container" {
+@test "build_manager builds a containerized Rust project (Docker + Cargo) - executes containerized cargo build in Docker container" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
-  setup_build_manager_test "real_cargo_build_test"
+  setup_build_manager_test "containerized_cargo_build_test"
 
-  # Create a real Rust project
+  # Create a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
-  # Build using real Docker and Cargo
+  # Build using Docker and Cargo
   image_name="suitey-test-rust-real-$(date +%Y%m%d-%H%M%S)"
-  build_result=$(build_manager_build_real_rust_project "$project_dir" "$image_name")
+  build_result=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
-  # Should execute real cargo build
+  # Should execute containerized cargo build
   echo "$build_result" | grep -q "cargo.*build\|Compiling\|Finished"
 
   # Clean up
@@ -796,19 +796,19 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager builds a real Rust project (REAL Docker + REAL Cargo) - validates build artifacts are created" {
+@test "build_manager builds a containerized Rust project (Docker + Cargo) - validates build artifacts are created" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "real_artifacts_test"
 
-  # Create a real Rust project
+  # Create a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Build project
   image_name="suitey-test-rust-artifacts-$(date +%Y%m%d-%H%M%S)"
-  build_manager_build_real_rust_project "$project_dir" "$image_name"
+  build_manager_build_containerized_rust_project "$project_dir" "$image_name"
 
   # Create container and check for artifacts
   container_id=$(docker create "$image_name" /bin/sh)
@@ -825,19 +825,19 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager builds a real Rust project (REAL Docker + REAL Cargo) - verifies build output is captured" {
+@test "build_manager builds a containerized Rust project (Docker + Cargo) - verifies build output is captured" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "build_output_capture_test"
 
-  # Create a real Rust project
+  # Create a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Build project and capture output
   image_name="suitey-test-rust-output-$(date +%Y%m%d-%H%M%S)"
-  build_output=$(build_manager_build_real_rust_project "$project_dir" "$image_name")
+  build_output=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should capture build output
   echo "$build_output" | grep -q "Compiling\|Finished\|build\|cargo"
@@ -848,19 +848,19 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager builds a real Rust project (REAL Docker + REAL Cargo) - tests parallel build execution (jobs $(nproc))" {
+@test "build_manager builds a containerized Rust project (Docker + Cargo) - tests parallel build execution (jobs $(nproc))" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "parallel_build_execution_test"
 
-  # Create a real Rust project
+  # Create a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Build with parallel execution
   image_name="suitey-test-rust-parallel-$(date +%Y%m%d-%H%M%S)"
-  build_output=$(build_manager_build_real_rust_project "$project_dir" "$image_name")
+  build_output=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should show parallel build execution
   echo "$build_output" | grep -q "jobs.*[0-9]\|parallel\|Compiling.*release"
@@ -871,19 +871,19 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - extracts real build artifacts from container" {
+@test "build_manager creates test image with containerized Rust artifacts - extracts containerized build artifacts from container" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
-  setup_build_manager_test "real_artifact_extraction_test"
+  setup_build_manager_test "containerized_artifact_extraction_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Build project first to create artifacts
   temp_image="suitey-temp-rust-$(date +%Y%m%d-%H%M%S)"
-  build_manager_build_real_rust_project "$project_dir" "$temp_image"
+  build_manager_build_containerized_rust_project "$project_dir" "$temp_image"
 
   # Extract artifacts and create test image
   final_image="suitey-test-rust-final-$(date +%Y%m%d-%H%M%S)"
@@ -898,17 +898,17 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - generates Dockerfile with actual artifacts" {
+@test "build_manager creates test image with containerized Rust artifacts - generates Dockerfile with actual artifacts" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
-  setup_build_manager_test "real_dockerfile_generation_test"
+  setup_build_manager_test "containerized_dockerfile_generation_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
-  # Create test image with real artifacts
+  # Create test image with containerized artifacts
   image_name="suitey-test-rust-dockerfile-$(date +%Y%m%d-%H%M%S)"
   build_manager_create_test_image_from_artifacts "$project_dir" "rust:latest" "$image_name"
 
@@ -925,15 +925,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - builds real Docker image containing artifacts" {
+@test "build_manager creates test image with containerized Rust artifacts - builds Docker image containing artifacts" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
-  setup_build_manager_test "real_image_with_artifacts_test"
+  setup_build_manager_test "containerized_image_with_artifacts_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Create test image
   image_name="suitey-test-rust-with-artifacts-$(date +%Y%m%d-%H%M%S)"
@@ -954,15 +954,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - verifies image contains compiled binaries" {
+@test "build_manager creates test image with containerized Rust artifacts - verifies image contains compiled binaries" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "verify_compiled_binaries_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Create test image
   image_name="suitey-test-rust-binaries-$(date +%Y%m%d-%H%M%S)"
@@ -980,15 +980,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - validates image contains source code" {
+@test "build_manager creates test image with containerized Rust artifacts - validates image contains source code" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "verify_source_code_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Create test image
   image_name="suitey-test-rust-source-$(date +%Y%m%d-%H%M%S)"
@@ -1007,15 +1007,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager creates test image with Rust artifacts (REAL) - validates image contains test suites" {
+@test "build_manager creates test image with containerized Rust artifacts - validates image contains test suites" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "verify_test_suites_test"
 
-  # Create and build a real Rust project
+  # Create and build a containerized Rust project
   project_dir="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$project_dir"
+  create_containerized_rust_project "$project_dir"
 
   # Create test image
   image_name="suitey-test-rust-tests-$(date +%Y%m%d-%H%M%S)"
@@ -1031,7 +1031,7 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager handles build failures in real scenarios (REAL) - tests with intentionally broken Rust code" {
+@test "build_manager handles build failures in containerized scenarios - tests with intentionally broken Rust code" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
@@ -1043,7 +1043,7 @@ EOF
 
   # Try to build
   image_name="suitey-test-broken-$(date +%Y%m%d-%H%M%S)"
-  build_result=$(build_manager_build_real_rust_project "$project_dir" "$image_name")
+  build_result=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should fail
   echo "$build_result" | grep -q "BUILD_FAILED"
@@ -1057,7 +1057,7 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager handles build failures in real scenarios (REAL) - validates error detection and reporting" {
+@test "build_manager handles build failures in containerized scenarios - validates error detection and reporting" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
@@ -1068,7 +1068,7 @@ EOF
   create_broken_rust_project "$project_dir"
 
   # Try to build
-  build_result=$(build_manager_build_real_rust_project "$project_dir" "test_image")
+  build_result=$(build_manager_build_containerized_rust_project "$project_dir" "test_image")
 
   # Should detect and report errors
   echo "$build_result" | grep -q "BUILD_FAILED"
@@ -1076,7 +1076,7 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager handles build failures in real scenarios (REAL) - verifies containers are cleaned up on failure" {
+@test "build_manager handles build failures in containerized scenarios - verifies containers are cleaned up on failure" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
@@ -1090,7 +1090,7 @@ EOF
   containers_before=$(docker ps -a --format "{{.ID}}" | wc -l)
 
   # Try to build (should fail and cleanup)
-  build_manager_build_real_rust_project "$project_dir" "test_image" || true
+  build_manager_build_containerized_rust_project "$project_dir" "test_image" || true
 
   # Count containers after
   containers_after=$(docker ps -a --format "{{.ID}}" | wc -l)
@@ -1101,7 +1101,7 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager handles build failures in real scenarios (REAL) - tests error messages are clear and actionable" {
+@test "build_manager handles build failures in containerized scenarios - tests error messages are clear and actionable" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
@@ -1112,7 +1112,7 @@ EOF
   create_broken_rust_project "$project_dir"
 
   # Try to build
-  build_result=$(build_manager_build_real_rust_project "$project_dir" "test_image")
+  build_result=$(build_manager_build_containerized_rust_project "$project_dir" "test_image")
 
   # Should provide clear, actionable error messages
   echo "$build_result" | grep -q "BUILD_FAILED.*error"
@@ -1120,15 +1120,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager multi-framework real builds (REAL) - tests building multiple frameworks simultaneously" {
+@test "build_manager multi-framework containerized builds - tests building multiple frameworks simultaneously" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "multi_framework_simultaneous_test"
 
-  # Create multiple real projects
+  # Create multiple containerized projects
   rust_project="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$rust_project"
+  create_containerized_rust_project "$rust_project"
 
   # For now, just test Rust - would need Go project setup too
   build_requirements='[
@@ -1144,15 +1144,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager multi-framework real builds (REAL) - validates parallel execution with real Docker" {
+@test "build_manager multi-framework containerized builds - validates parallel execution with Docker" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "parallel_execution_real_test"
 
-  # Create multiple real projects
+  # Create multiple containerized projects
   rust_project="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$rust_project"
+  create_containerized_rust_project "$rust_project"
 
   build_requirements='[
     {"framework": "rust", "build_dependencies": [], "build_steps": []}
@@ -1167,15 +1167,15 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager multi-framework real builds (REAL) - verifies independent builds don't interfere" {
+@test "build_manager multi-framework containerized builds - verifies independent builds don't interfere" {
   # Skip if Docker is not available
   check_docker_available || skip "Docker daemon not available"
 
   setup_build_manager_test "independent_builds_test"
 
-  # Create multiple real projects
+  # Create multiple containerized projects
   rust_project="$TEST_BUILD_MANAGER_DIR/rust_project"
-  create_real_rust_project "$rust_project"
+  create_containerized_rust_project "$rust_project"
 
   build_requirements='[
     {"framework": "rust", "build_dependencies": [], "build_steps": []}
@@ -1190,7 +1190,7 @@ EOF
   teardown_build_manager_test
 }
 
-@test "build_manager multi-framework real builds (REAL) - tests dependent builds execute sequentially" {
+@test "build_manager multi-framework containerized builds - tests dependent builds execute sequentially" {
   setup_build_manager_test "dependent_builds_sequential_test"
 
   # Create build requirements with dependencies

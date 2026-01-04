@@ -140,11 +140,6 @@ restore_path() {
 # Rust-Specific Helper Functions
 # ============================================================================
 
-# Check if cargo binary is available
-is_cargo_available() {
-  command -v cargo >/dev/null 2>&1
-}
-
 # Count the number of #[test] annotations in a Rust test file
 count_rust_tests() {
   local file="$1"
