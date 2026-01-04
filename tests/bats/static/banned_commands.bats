@@ -6,7 +6,7 @@
 
 # Configurable list of banned commands
 # Add new banned commands here as requirements change
-declare -a BANNED_COMMANDS=(
+BANNED_COMMANDS=(
 	"jq"        # Explicitly banned per requirements
 	"python"    # Creates unwanted Python dependency
 	"node"      # Creates unwanted Node.js dependency
@@ -22,32 +22,54 @@ declare -a BANNED_COMMANDS=(
 )
 
 @test "no banned commands used without explicit exceptions" {
-	local violations=()
+	# Find src directory - use current working directory (BATS runs from project root)
+	local src_dir="$(pwd)/src"
+	
+	# Verify src directory exists
+	if [[ ! -d "$src_dir" ]]; then
+		echo "ERROR: Cannot find src/ directory at $src_dir (PWD: $(pwd))" >&2
+		return 1
+	fi
 
 	for cmd in "${BANNED_COMMANDS[@]}"; do
 		# Find all occurrences of the command
-		local found_lines
-		mapfile -t found_lines < <(grep -rn "$cmd" src/ | grep -v "# suitey:allow $cmd")
+		# Use -w for word boundaries to avoid false positives and ensure accurate detection
+		local grep_output
+		grep_output=$(grep -rnw "$cmd" "$src_dir/" 2>/dev/null | grep -v "# suitey:allow $cmd")
+		local found_count
+		found_count=$(echo "$grep_output" | wc -l | tr -d ' ')
 
-		if [ ${#found_lines[@]} -gt 0 ]; then
-			violations+=("Command '$cmd' found without exception:")
-			for line in "${found_lines[@]}"; do
-				violations+=("  $line")
+		# Fail immediately if found (use arithmetic comparison)
+		if (( found_count > 0 )); then
+			echo "Command '$cmd' found without exception ($found_count occurrences):" >&2
+			# Show first few examples
+			echo "$grep_output" | head -5 | while IFS= read -r line; do
+				echo "  $line" >&2
 			done
+			# Use explicit failure
+			return 1
 		fi
 	done
-
-	if [ ${#violations[@]} -gt 0 ]; then
-		echo "Banned commands found: ${violations[*]}"
-		false
-	fi
 }
 
 @test "banned commands only used with proper exception syntax" {
+	# Find project root (where src/ directory is located)
+	local project_root
+	if [[ -n "$BATS_TEST_DIRNAME" ]] && [[ -d "$BATS_TEST_DIRNAME/../../../src" ]]; then
+		project_root=$(cd "$BATS_TEST_DIRNAME/../../.." && pwd)
+	elif [[ -d "src" ]]; then
+		project_root="$(pwd)"
+	else
+		echo "ERROR: Cannot find project root (src/ directory)" >&2
+		false
+		return
+	fi
+
 	for cmd in "${BANNED_COMMANDS[@]}"; do
 		# Find lines with banned command but without proper exception
 		local bad_exceptions
-		bad_exceptions=$(grep -rn "$cmd" src/ | grep -v "# suitey:allow $cmd" | grep "#.*allow" | wc -l)
+		# Use -w for word boundaries to avoid false positives
+		bad_exceptions=$(grep -rnw "$cmd" "$project_root/src/" 2>/dev/null | grep -v "# suitey:allow $cmd" | grep "#.*allow" | wc -l)
 
 		if [ "$bad_exceptions" -ne 0 ]; then
 			echo "Found $bad_exceptions improper exception comments for '$cmd'"
@@ -62,7 +84,8 @@ declare -a BANNED_COMMANDS=(
 
 	for pkg_mgr in "${package_managers[@]}"; do
 		local found
-		found=$(grep -r "$pkg_mgr" src/ | grep -v "#.*example\|#.*test\|#.*safe" | wc -l)
+		# Use -w flag for word boundaries to avoid false positives (e.g., "adapter" matching "apt")
+		found=$(grep -rw "$pkg_mgr" src/ | grep -v "#.*example\|#.*test\|#.*safe" | wc -l)
 		if [ "$found" -gt 0 ]; then
 			violations+=("$pkg_mgr ($found occurrences)")
 		fi
@@ -80,7 +103,11 @@ declare -a BANNED_COMMANDS=(
 
 	for admin_cmd in "${admin_cmds[@]}"; do
 		local found
-		found=$(grep -r "$admin_cmd" src/ | grep -v "#.*example\|#.*test\|#.*safe\|#.*justified" | wc -l)
+		# Use -w for word boundaries to avoid false positives (e.g., "volume_mount" matching "mount")
+		# Exclude Docker volume mount contexts, variable names, JSON keys, and comments
+		found=$(grep -rw "$admin_cmd" src/ | \
+			grep -v "#.*example\|#.*test\|#.*safe\|#.*justified\|volume.*mount\|bind.*mount\|_mount\|mounts\|Mount.*to\|Launch.*mount\|volume_mount" | \
+			wc -l)
 		if [ "$found" -gt 0 ]; then
 			violations+=("$admin_cmd ($found occurrences)")
 		fi
