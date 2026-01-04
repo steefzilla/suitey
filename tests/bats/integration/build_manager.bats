@@ -235,7 +235,7 @@ build_manager_initialize >/dev/null 2>&1 || true
   build_result=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/mock_artifacts" "$image_name")
 
   # Should complete build process successfully
-  echo "$build_result" | grep -q "DONE\|naming to.*done"
+  echo "$build_result" | grep -E -q "DONE|naming to.*done"
 
   # Clean up
   docker rmi "$image_name" 2>/dev/null || true
@@ -599,7 +599,7 @@ EOF
 
   # Should handle gracefully without crashing
   [ $result -ne 0 ]
-  echo "$output" | grep -q "connection.*refused\|connect.*failed"
+  echo "$output" | grep -E -q "connection.*refused|connect.*failed"
 
   teardown_build_manager_test
 }
@@ -624,7 +624,7 @@ EOF
   output=$(build_manager_process_adapter_build_steps "$build_requirements" "rust")
 
   # Should process build steps from adapter
-  echo "$output" | grep -q "build.*steps\|adapter.*steps"
+  echo "$output" | grep -E -q "build.*steps|adapter.*steps"
 
   teardown_build_manager_test
 }
@@ -642,7 +642,7 @@ EOF
   output=$(build_manager_execute_with_adapter_specs "$build_requirements" "rust")
 
   # Should execute using adapter specifications
-  echo "$output" | grep -q "adapter.*specs\|framework.*specs"
+  echo "$output" | grep -E -q "adapter.*specs|framework.*specs"
 
   teardown_build_manager_test
 }
@@ -662,7 +662,7 @@ EOF
   output=$(build_manager_pass_image_metadata_to_adapter "$test_image_metadata" "rust")
 
   # Should pass metadata correctly
-  echo "$output" | grep -q "metadata.*passed\|image.*metadata"
+  echo "$output" | grep -E -q "metadata.*passed|image.*metadata"
 
   teardown_build_manager_test
 }
@@ -684,7 +684,7 @@ EOF
   output=$(build_manager_coordinate_with_project_scanner "$build_requirements")
 
   # Should coordinate properly
-  echo "$output" | grep -q "coordinated\|project.*scanner"
+  echo "$output" | grep -E -q "coordinated|project.*scanner"
 
   teardown_build_manager_test
 }
@@ -703,7 +703,7 @@ EOF
   output=$(build_manager_provide_results_to_scanner "$build_results")
 
   # Should prevent test execution on build failure
-  echo "$output" | grep -q "build.*failed\|prevent.*test\|no.*execution"
+  echo "$output" | grep -E -q "build.*failed|prevent.*test|no.*execution"
 
   teardown_build_manager_test
 }
@@ -725,7 +725,7 @@ EOF
   output=$(build_manager_execute_multi_framework "$build_requirements")
 
   # Should execute in parallel
-  echo "$output" | grep -q "parallel\|concurrent\|multiple.*frameworks"
+  echo "$output" | grep -E -q "parallel|concurrent|multiple.*frameworks"
 
   teardown_build_manager_test
 }
@@ -746,7 +746,7 @@ EOF
   output=$(build_manager_execute_dependent_builds "$build_requirements")
 
   # Should execute sequentially and create separate images
-  echo "$output" | grep -q "sequential\|dependencies\|separate.*images"
+  echo "$output" | grep -E -q "sequential|dependencies|separate.*images"
 
   teardown_build_manager_test
 }
@@ -788,7 +788,7 @@ EOF
   build_result=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should execute containerized cargo build
-  echo "$build_result" | grep -q "cargo.*build\|Compiling\|Finished"
+  echo "$build_result" | grep -E -q "cargo.*build|Compiling|Finished"
 
   # Clean up
   docker rmi "$image_name" 2>/dev/null || true
@@ -832,7 +832,7 @@ EOF
   build_output=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should capture build output
-  echo "$build_output" | grep -q "Compiling\|Finished\|build\|cargo"
+  echo "$build_output" | grep -E -q "Compiling|Finished|build|cargo"
 
   # Clean up
   docker rmi "$image_name" 2>/dev/null || true
@@ -855,7 +855,7 @@ EOF
   build_output=$(build_manager_build_containerized_rust_project "$project_dir" "$image_name")
 
   # Should show parallel build execution
-  echo "$build_output" | grep -q "jobs.*[0-9]\|parallel\|Compiling.*release"
+  echo "$build_output" | grep -E -q "jobs.*[0-9]|parallel|Compiling.*release"
 
   # Clean up
   docker rmi "$image_name" 2>/dev/null || true
@@ -1046,7 +1046,7 @@ EOF
   echo "$build_result" | grep -q "BUILD_FAILED"
 
   # Should show compilation errors
-  echo "$build_result" | grep -q "error\|failed\|cannot find"
+  echo "$build_result" | grep -iE -q "error|failed|cannot find"
 
   # Should not create image
   docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "$image_name" && false || true
@@ -1155,7 +1155,7 @@ EOF
   output=$(build_manager_build_multi_framework_real "$build_requirements")
 
   # Should build multiple frameworks
-  echo "$output" | grep -q "multiple\|frameworks\|parallel"
+  echo "$output" | grep -E -q "multiple|frameworks|parallel"
 
   teardown_build_manager_test
 }
@@ -1178,7 +1178,7 @@ EOF
   output=$(build_manager_build_multi_framework_real "$build_requirements")
 
   # Should execute in parallel
-  echo "$output" | grep -q "parallel\|concurrent\|simultaneous"
+  echo "$output" | grep -E -q "parallel|concurrent|simultaneous"
 
   teardown_build_manager_test
 }
@@ -1201,7 +1201,7 @@ EOF
   output=$(build_manager_build_multi_framework_real "$build_requirements")
 
   # Should not interfere with each other
-  echo "$output" | grep -q "independent\|isolated\|separate"
+  echo "$output" | grep -E -q "independent|isolated|separate"
 
   teardown_build_manager_test
 }
@@ -1219,7 +1219,7 @@ EOF
   output=$(build_manager_build_dependent_real "$build_requirements")
 
   # Should execute sequentially
-  echo "$output" | grep -q "sequential\|dependencies\|order"
+  echo "$output" | grep -E -q "sequential|dependencies|order"
 
   teardown_build_manager_test
 }

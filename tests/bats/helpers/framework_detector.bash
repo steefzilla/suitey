@@ -410,7 +410,7 @@ assert_confidence_level() {
 
   # This would check the confidence level in the structured output
   # For now, just verify the output contains confidence information
-  if ! echo "$output" | grep -q "confidence\|Confidence"; then
+  if ! echo "$output" | grep -iE -q "confidence"; then
     echo "ERROR: Expected confidence level information in output"
     echo "Output was:"
     echo "$output"

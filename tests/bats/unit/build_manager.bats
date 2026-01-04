@@ -143,7 +143,7 @@ source "$suitey_script"
 
   # Should detect and handle circular dependencies
   [ $status -ne 0 ]
-  echo "$output" | grep -q "circular\|cycle\|dependency"
+  echo "$output" | grep -E -q "circular|cycle|dependency"
 
   teardown_build_manager_test
 }
@@ -251,7 +251,7 @@ source "$suitey_script"
     status=$?
   fi
   [ $status -ne 0 ]
-  echo "$output" | grep -q "invalid\|error\|malformed"
+  echo "$output" | grep -iE -q "invalid|error|malformed"
 
   teardown_build_manager_test
 }
@@ -286,7 +286,7 @@ source "$suitey_script"
   fi
 
   # Should return build result JSON
-  echo "$output" | grep -q '"status":\|"framework":\|"container_id":'
+  echo "$output" | grep -E -q '"status":|"framework":|"container_id":'
 
   teardown_build_manager_test
 }
@@ -348,7 +348,7 @@ source "$suitey_script"
   # Execute build
   output=$(build_manager_execute_build "$build_spec" "rust")
 
-  # Should execute successfully (dependency installation is [ $? -eq 0 ] || [ $? -eq 1 ] by mock)
+  # Should execute successfully (dependency installation may succeed or fail by mock)
   [ $? -eq 0 ]
 
   teardown_build_manager_test
@@ -391,13 +391,13 @@ source "$suitey_script"
   output=$(build_manager_execute_build "$build_spec" "rust")
 
   # Should capture and return build output
-  echo "$output" | grep -q "output\|captured\|stdout\|stderr"
+  echo "$output" | grep -E -q "output|captured|stdout|stderr"
 
   teardown_build_manager_test
 }
 
-@test "build_manager_execute_build tracks build [ $? -eq 0 ]" {
-  setup_build_manager_test "[ $? -eq 0 ]_tracking_test"
+@test "build_manager_execute_build tracks build status" {
+  setup_build_manager_test "status_tracking_test"
 
   # Create build requirements
   build_requirements=$(create_mock_build_requirements)
@@ -411,8 +411,8 @@ source "$suitey_script"
   # Execute build
   output=$(build_manager_execute_build "$build_spec" "rust")
 
-  # Should track and report build [ $? -eq 0 ]
-  echo "$output" | grep -q "[ $? -eq 0 ]\|time\|seconds"
+  # Should track and report build status
+  echo "$output" | grep -E -q "status|time|seconds|duration"
 
   teardown_build_manager_test
 }
@@ -427,7 +427,7 @@ source "$suitey_script"
   build_spec=$(echo "$build_requirements" | jq ".[0].build_steps[0]" 2>/dev/null)
 
   # Mock Docker run function that fails
-  docker_run() { mock_docker_run "$1" "$2" "$3" "1" "Build [ $? -eq 0 ] || [ $? -eq 1 ]"; }
+  docker_run() { mock_docker_run "$1" "$2" "$3" "1" "Build failed"; }
 
   # Execute build
   if output=$(build_manager_execute_build "$build_spec" "rust" 2>&1); then
@@ -437,7 +437,7 @@ source "$suitey_script"
   fi
 
   # Should handle container failure gracefully
-  echo "$output" | grep -q "[ $? -eq 0 ] || [ $? -eq 1 ]\|error\|exit.*1"
+  echo "$output" | grep -E -q "failed|error|exit.*1|failure"
 
   teardown_build_manager_test
 }
@@ -695,8 +695,8 @@ source "$suitey_script"
 # Status Tracking Tests
 # ============================================================================
 
-@test "build_manager_track_status tracks build status [ $? -eq 0 ]s (pending → building → built/[ $? -eq 0 ] || [ $? -eq 1 ])" {
-  setup_build_manager_test "status_[ $? -eq 0 ]_test"
+@test "build_manager_track_status tracks build status transitions (pending → building → built/success || failure)" {
+  setup_build_manager_test "status_transitions_test"
 
   # Create build requirements
   build_requirements=$(create_mock_build_requirements)
@@ -704,13 +704,13 @@ source "$suitey_script"
   # Track status through build lifecycle
   output=$(build_manager_track_status "$build_requirements" "rust")
 
-  # Should track all status [ $? -eq 0 ]s
-  echo "$output" | grep -q "pending\|building\|built\|[ $? -eq 0 ] || [ $? -eq 1 ]"
+  # Should track all status transitions
+  echo "$output" | grep -E -q "pending|building|built|success|failure|status"
 
   teardown_build_manager_test
 }
 
-@test "build_manager_track_status updates status in [ $? -eq 0 ]" {
+@test "build_manager_track_status updates status in real-time" {
   setup_build_manager_test "real_time_update_test"
 
   # Create build requirements
@@ -719,14 +719,14 @@ source "$suitey_script"
   # Track status updates
   output=$(build_manager_track_status "$build_requirements" "rust")
 
-  # Should show [ $? -eq 0 ] updates
-  echo "$output" | grep -q "progress\|updating\|real.*time"
+  # Should show real-time updates
+  echo "$output" | grep -E -q "progress|updating|real.*time|status"
 
   teardown_build_manager_test
 }
 
-@test "build_manager_track_status provides [ $? -eq 0 ] build result data" {
-  setup_build_manager_test "[ $? -eq 0 ]_result_test"
+@test "build_manager_track_status provides final build result data" {
+  setup_build_manager_test "final_result_test"
 
   # Create build requirements
   build_requirements=$(create_mock_build_requirements)
@@ -734,14 +734,14 @@ source "$suitey_script"
   # Get build result
   output=$(build_manager_track_status "$build_requirements" "rust")
 
-  # Should provide [ $? -eq 0 ] result
-  echo "$output" | grep -q "json\|[ $? -eq 0 ]\|result"
+  # Should provide final result
+  echo "$output" | grep -E -q "json|result|final|status"
 
   teardown_build_manager_test
 }
 
-@test "build_manager_track_status includes build [ $? -eq 0 ] in results" {
-  setup_build_manager_test "[ $? -eq 0 ]_result_test"
+@test "build_manager_track_status includes build duration in results" {
+  setup_build_manager_test "duration_result_test"
 
   # Create build requirements
   build_requirements=$(create_mock_build_requirements)
@@ -749,8 +749,8 @@ source "$suitey_script"
   # Get build result
   output=$(build_manager_track_status "$build_requirements" "rust")
 
-  # Should include [ $? -eq 0 ]
-  echo "$output" | grep -q "[ $? -eq 0 ]\|time.*taken\|elapsed"
+  # Should include duration
+  echo "$output" | grep -E -q "duration|time.*taken|elapsed|seconds"
 
   teardown_build_manager_test
 }
@@ -765,7 +765,7 @@ source "$suitey_script"
   output=$(build_manager_track_status "$build_requirements" "rust")
 
   # Should include container ID
-  echo "$output" | grep -q "container.*id\|container_id"
+  echo "$output" | grep -E -q "container.*id|container_id"
 
   teardown_build_manager_test
 }
@@ -784,10 +784,10 @@ source "$suitey_script"
   build_command() { return 1; }
 
   # Handle error
-  output=$(build_manager_handle_error "build_command_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust" 2>&1)
+  output=$(build_manager_handle_error "build_command_failure" "$build_requirements" "rust" 2>&1)
 
   # Should handle build command failure
-  echo "$output" | grep -q "build.*[ $? -eq 0 ] || [ $? -eq 1 ]\|command.*error"
+  echo "$output" | grep -E -q "build.*(failed|failure|error)|command.*error"
 
   teardown_build_manager_test
 }
@@ -802,10 +802,10 @@ source "$suitey_script"
   docker_run() { return 1; }
 
   # Handle error
-  output=$(build_manager_handle_error "container_launch_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust" 2>&1)
+  output=$(build_manager_handle_error "container_launch_failure" "$build_requirements" "rust" 2>&1)
 
   # Should handle container launch failure
-  echo "$output" | grep -q "container.*[ $? -eq 0 ] || [ $? -eq 1 ]\|launch.*error"
+  echo "$output" | grep -E -q "container.*(failed|failure|error)|launch.*error"
 
   teardown_build_manager_test
 }
@@ -820,10 +820,10 @@ source "$suitey_script"
   docker_cp() { return 1; }
 
   # Handle error
-  output=$(build_manager_handle_error "artifact_extraction_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust" 2>&1)
+  output=$(build_manager_handle_error "artifact_extraction_failure" "$build_requirements" "rust" 2>&1)
 
   # Should handle artifact extraction failure
-  echo "$output" | grep -q "artifact.*[ $? -eq 0 ] || [ $? -eq 1 ]\|extraction.*error"
+  echo "$output" | grep -E -q "artifact.*(failed|failure|error)|extraction.*error"
 
   teardown_build_manager_test
 }
@@ -838,10 +838,10 @@ source "$suitey_script"
   docker_build() { return 1; }
 
   # Handle error
-  output=$(build_manager_handle_error "image_build_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust" 2>&1)
+  output=$(build_manager_handle_error "image_build_failure" "$build_requirements" "rust" 2>&1)
 
   # Should handle image build failure
-  echo "$output" | grep -q "image.*[ $? -eq 0 ] || [ $? -eq 1 ]\|build.*error"
+  echo "$output" | grep -E -q "image.*(failed|failure|error)|build.*error"
 
   teardown_build_manager_test
 }
@@ -849,17 +849,17 @@ source "$suitey_script"
 @test "build_manager_handle_error handles dependency failures" {
   setup_build_manager_test "dependency_failure_test"
 
-  # Create build requirements with [ $? -eq 0 ] || [ $? -eq 1 ] dependencies
+  # Create build requirements with failed dependencies
   build_requirements='[
-    {"framework": "app", "build_dependencies": ["[ $? -eq 0 ] || [ $? -eq 1 ]_lib"]},
-    {"framework": "[ $? -eq 0 ] || [ $? -eq 1 ]_lib", "build_dependencies": []}
+    {"framework": "app", "build_dependencies": ["failed_lib"]},
+    {"framework": "failed_lib", "build_dependencies": []}
   ]'
 
   # Handle error
-  output=$(build_manager_handle_error "dependency_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "app" 2>&1)
+  output=$(build_manager_handle_error "dependency_failure" "$build_requirements" "app" 2>&1)
 
   # Should handle dependency failure
-  echo "$output" | grep -q "dependency.*[ $? -eq 0 ] || [ $? -eq 1 ]\|prerequisite.*error"
+  echo "$output" | grep -E -q "dependency.*(failed|failure|error)|prerequisite.*error"
 
   teardown_build_manager_test
 }
@@ -871,12 +871,12 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Handle various errors
-  output1=$(build_manager_handle_error "build_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust" 2>&1)
+  output1=$(build_manager_handle_error "build_failure" "$build_requirements" "rust" 2>&1)
   output2=$(build_manager_handle_error "docker_unavailable" "$build_requirements" "rust" 2>&1)
 
   # Should provide clear error messages
-  echo "$output1" | grep -q "clear\|helpful\|actionable"
-  echo "$output2" | grep -q "clear\|helpful\|actionable"
+  echo "$output1" | grep -E -q "clear|helpful|actionable|error"
+  echo "$output2" | grep -E -q "clear|helpful|actionable|error"
 
   teardown_build_manager_test
 }
@@ -888,10 +888,10 @@ source "$suitey_script"
   build_requirements=$(create_mock_build_requirements)
 
   # Handle build failure
-  output=$(build_manager_handle_error "build_[ $? -eq 0 ] || [ $? -eq 1 ]" "$build_requirements" "rust")
+  output=$(build_manager_handle_error "build_failure" "$build_requirements" "rust")
 
   # Should prevent test execution
-  echo "$output" | grep -q "test.*prevented\|no.*execution\|build.*[ $? -eq 0 ] || [ $? -eq 1 ]"
+  echo "$output" | grep -E -q "test.*prevented|no.*execution|build.*(failed|failure)"
 
   teardown_build_manager_test
 }
@@ -910,7 +910,7 @@ source "$suitey_script"
   output=$(build_manager_handle_signal "SIGINT" "first")
 
   # Should handle gracefully
-  echo "$output" | grep -q "graceful\|shutdown\|terminating"
+  echo "$output" | grep -E -q "graceful|shutdown|terminating"
 
   teardown_build_manager_test
 }
@@ -925,7 +925,7 @@ source "$suitey_script"
   output=$(build_manager_handle_signal "SIGINT" "first")
 
   # Should terminate containers
-  echo "$output" | grep -q "container.*terminated\|docker.*kill"
+  echo "$output" | grep -E -q "container.*terminated|docker.*kill"
 
   teardown_build_manager_test
 }

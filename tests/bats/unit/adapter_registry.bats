@@ -552,7 +552,7 @@ assert_adapters_available() {
   local output="$1"
 
   # Should have at least some adapters available
-  if ! echo "$output" | grep -q '"rust"\|"bats"\|"working_adapter"'; then
+  if ! echo "$output" | grep -E -q '"rust"|"bats"|"working_adapter"'; then
     echo "ERROR: No adapters available after initialization failure simulation"
     echo "Output: $output"
     return 1

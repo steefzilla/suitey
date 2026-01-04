@@ -370,9 +370,6 @@ EOF
   cat > "$TEST_PROJECT_DIR/tests/bats/deep/nested/structure/test.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "malformed test" {
-  [ "malformed" = "structure" ]
-}
 EOF
   chmod +x "$TEST_PROJECT_DIR/tests/bats/deep/nested/structure/test.bats"
 
@@ -400,9 +397,6 @@ EOF
   cat > "$TEST_PROJECT_DIR/tests/test.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "bats test" {
-  [ "bats" = "bats" ]
-}
 EOF
   chmod +x "$TEST_PROJECT_DIR/tests/test.bats"
 
@@ -698,13 +692,7 @@ create_complex_project() {
   cat > "$base_dir/tests/bats/complex.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "complex test 1" {
-  [ true ]
-}
 
-@test "complex test 2" {
-  [ true ]
-}
 EOF
   chmod +x "$base_dir/tests/bats/complex.bats"
 
@@ -773,7 +761,7 @@ assert_no_test_suites_found_handled() {
   fi
 
   # Should indicate no test suites were discovered
-  if ! echo "$output" | grep -q "No test suites found\|Discovered 0 test suite"; then
+  if ! echo "$output" | grep -E -q "No test suites found|Discovered 0 test suite"; then
     echo "ERROR: Expected indication that no test suites were found"
     echo "Output was: $output"
     return 1
@@ -811,7 +799,7 @@ assert_malformed_project_structure_handled() {
   local output="$1"
 
   # Should still detect frameworks despite unusual structure
-  if ! echo "$output" | grep -q "BATS framework detected\|Discovered.*test suite"; then
+  if ! echo "$output" | grep -E -q "BATS framework detected|Discovered.*test suite"; then
     echo "ERROR: Expected framework detection and test discovery despite malformed structure"
     echo "Output was: $output"
     return 1
@@ -876,7 +864,7 @@ assert_build_requirements_handled() {
 assert_project_scanner_coordinated_framework_detector() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "framework.*detector\|detector.*coordinated\|orchestrated.*framework"; then
+  if ! echo "$output" | grep -E -q "framework.*detector|detector.*coordinated|orchestrated.*framework"; then
     echo "ERROR: Expected Project Scanner to coordinate Framework Detector"
     echo "Output was: $output"
     return 1
@@ -889,7 +877,7 @@ assert_project_scanner_coordinated_framework_detector() {
 assert_project_scanner_coordinated_test_suite_discovery() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "suite.*discovery\|discovery.*coordinated\|orchestrated.*discovery"; then
+  if ! echo "$output" | grep -E -q "suite.*discovery|discovery.*coordinated|orchestrated.*discovery"; then
     echo "ERROR: Expected Project Scanner to coordinate Test Suite Discovery"
     echo "Output was: $output"
     return 1
@@ -902,7 +890,7 @@ assert_project_scanner_coordinated_test_suite_discovery() {
 assert_project_scanner_coordinated_build_detector() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "build.*detector\|detector.*build\|orchestrated.*build"; then
+  if ! echo "$output" | grep -E -q "build.*detector|detector.*build|orchestrated.*build"; then
     echo "ERROR: Expected Project Scanner to coordinate Build System Detector"
     echo "Output was: $output"
     return 1
@@ -918,7 +906,7 @@ assert_results_aggregated_from_registry_components() {
 
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "aggregated.*$adapter\|${adapter}.*aggregated"; then
+    if ! echo "$output" | grep -E -q "aggregated.*$adapter|${adapter}.*aggregated"; then
       echo "ERROR: Expected results to be aggregated from registry component using adapter '$adapter'"
       echo "Output was: $output"
       return 1
@@ -935,7 +923,7 @@ assert_complete_workflow_executed() {
   # Should show all phases: framework detection, test suite discovery, build detection
   local phases=("detection" "discovery" "build")
   for phase in "${phases[@]}"; do
-    if ! echo "$output" | grep -q "$phase.*complete\|complete.*$phase\|workflow.*$phase"; then
+    if ! echo "$output" | grep -E -q "$phase.*complete|complete.*$phase|workflow.*$phase"; then
       echo "ERROR: Expected $phase phase to be completed in workflow"
       echo "Output was: $output"
       return 1
@@ -950,14 +938,14 @@ assert_component_failures_handled_gracefully() {
   local output="$1"
   local failing_adapter="$2"
 
-  if ! echo "$output" | grep -q "failed.*$failing_adapter\|${failing_adapter}.*failed\|handled.*failure"; then
+  if ! echo "$output" | grep -E -q "failed.*$failing_adapter|${failing_adapter}.*failed|handled.*failure"; then
     echo "ERROR: Expected component failure for adapter '$failing_adapter' to be handled gracefully"
     echo "Output was: $output"
     return 1
   fi
 
   # Should not have crashed the entire orchestration
-  if echo "$output" | grep -q "fatal\|crash\|aborted"; then
+  if echo "$output" | grep -E -q "fatal|crash|aborted"; then
     echo "ERROR: Project Scanner should not crash when components fail"
     echo "Output was: $output"
     return 1
@@ -971,7 +959,7 @@ assert_working_components_processed() {
   local output="$1"
   local working_adapter="$2"
 
-  if ! echo "$output" | grep -q "processed.*$working_adapter\|${working_adapter}.*processed\|success.*$working_adapter"; then
+  if ! echo "$output" | grep -E -q "processed.*$working_adapter|${working_adapter}.*processed|success.*$working_adapter"; then
     echo "ERROR: Expected working component with adapter '$working_adapter' to be processed"
     echo "Output was: $output"
     return 1
@@ -985,7 +973,7 @@ assert_correct_execution_order() {
   local output="$1"
 
   # Should show Framework Detection → Test Suite Discovery → Build Detection order
-  if ! echo "$output" | grep -q "detection.*then.*discovery\|discovery.*after.*detection\|order.*maintained"; then
+  if ! echo "$output" | grep -E -q "detection.*then.*discovery|discovery.*after.*detection|order.*maintained"; then
     echo "ERROR: Expected correct execution order to be maintained"
     echo "Output was: $output"
     return 1
@@ -999,7 +987,7 @@ assert_registry_data_flow() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "flow.*$adapter_identifier\|${adapter_identifier}.*flow\|passed.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "flow.*$adapter_identifier|${adapter_identifier}.*flow|passed.*$adapter_identifier"; then
     echo "ERROR: Expected registry data to flow correctly for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -1016,7 +1004,7 @@ assert_all_adapter_operations_via_registry() {
   # Should show all adapter methods called via registry
   local operations=("detect" "check_binaries" "discover_test_suites" "detect_build_requirements")
   for operation in "${operations[@]}"; do
-    if ! echo "$output" | grep -q "$operation.*$adapter_identifier\|${adapter_identifier}.*$operation\|registry.*$operation"; then
+    if ! echo "$output" | grep -E -q "$operation.*$adapter_identifier|${adapter_identifier}.*$operation|registry.*$operation"; then
       echo "ERROR: Expected adapter operation '$operation' to be performed via registry for '$adapter_identifier'"
       echo "Output was: $output"
       return 1
@@ -1034,7 +1022,7 @@ assert_component_registry_integration_validated() {
   local expected_adapters="$2"
 
   # Should show validation of component-registry integration
-  if ! echo "$output" | grep -q "validated\|integration.*verified\|registry.*integration"; then
+  if ! echo "$output" | grep -E -q "validated|integration.*verified|registry.*integration"; then
     echo "ERROR: Expected component-registry integration to be validated"
     echo "Output was: $output"
     return 1
@@ -1043,7 +1031,7 @@ assert_component_registry_integration_validated() {
   # Should include specified adapters in validation
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "validate.*$adapter\|${adapter}.*validate"; then
+    if ! echo "$output" | grep -E -q "validate.*$adapter|${adapter}.*validate"; then
       echo "ERROR: Expected adapter '$adapter' to be included in integration validation"
       echo "Output was: $output"
       return 1
@@ -1059,7 +1047,7 @@ assert_unified_results_from_components() {
   local expected_adapters="$2"
 
   # Should show unified results from all components
-  if ! echo "$output" | grep -q "unified\|combined\|aggregated.*results"; then
+  if ! echo "$output" | grep -E -q "unified|combined|aggregated.*results"; then
     echo "ERROR: Expected unified results from registry-based components"
     echo "Output was: $output"
     return 1
@@ -1068,7 +1056,7 @@ assert_unified_results_from_components() {
   # Should include results from specified adapters
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "results.*$adapter\|${adapter}.*results"; then
+    if ! echo "$output" | grep -E -q "results.*$adapter|${adapter}.*results"; then
       echo "ERROR: Expected results from adapter '$adapter' in unified output"
       echo "Output was: $output"
       return 1

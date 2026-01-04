@@ -983,7 +983,7 @@ assert_build_result_framework() {
 assert_build_manager_initialized() {
   local status_output="$1"
 
-  if ! echo "$status_output" | grep -q "initialized\|ready\|active"; then
+  if ! echo "$status_output" | grep -E -q "initialized|ready|active"; then
     echo "ERROR: Build manager not properly initialized"
     echo "Status output: $status_output"
     return 1
@@ -996,7 +996,7 @@ assert_build_manager_initialized() {
 assert_docker_unavailable_handled() {
   local error_output="$1"
 
-  if ! echo "$error_output" | grep -q "Docker.*not.*available\|daemon.*not.*running\|cannot.*connect"; then
+  if ! echo "$error_output" | grep -E -q "Docker.*not.*available|daemon.*not.*running|cannot.*connect"; then
     echo "ERROR: Docker unavailability not properly handled"
     echo "Error output: $error_output"
     return 1

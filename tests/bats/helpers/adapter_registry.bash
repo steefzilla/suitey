@@ -643,7 +643,7 @@ assert_failure() {
 # Assert that adapter registration succeeded
 assert_adapter_registration_success() {
   local output="$1"
-  if [[ -z "$output" ]] || echo "$output" | grep -q "ERROR\|error\|failed\|Failed"; then
+  if [[ -z "$output" ]] || echo "$output" | grep -iE -q "ERROR|error|failed"; then
     echo "ERROR: Expected successful adapter registration"
     echo "Output was: $output"
     return 1
@@ -658,28 +658,28 @@ assert_adapter_registration_error() {
 
   case "$error_type" in
     "identifier_conflict")
-      if ! echo "$output" | grep -q "identifier.*conflict\|already.*registered"; then
+      if ! echo "$output" | grep -E -q "identifier.*conflict|already.*registered"; then
         echo "ERROR: Expected identifier conflict error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "invalid_interface")
-      if ! echo "$output" | grep -q "invalid.*interface\|missing.*method"; then
+      if ! echo "$output" | grep -E -q "invalid.*interface|missing.*method"; then
         echo "ERROR: Expected invalid interface error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "invalid_metadata")
-      if ! echo "$output" | grep -q "invalid.*metadata\|missing.*field"; then
+      if ! echo "$output" | grep -E -q "invalid.*metadata|missing.*field"; then
         echo "ERROR: Expected invalid metadata error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "null_adapter")
-      if ! echo "$output" | grep -q "null.*adapter\|empty.*identifier"; then
+      if ! echo "$output" | grep -E -q "null.*adapter|empty.*identifier"; then
         echo "ERROR: Expected null adapter error"
         echo "Output was: $output"
         return 1
@@ -695,7 +695,7 @@ assert_adapter_found() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if echo "$output" | grep -q "not.*found\|null\|empty"; then
+  if echo "$output" | grep -E -q "not.*found|null|empty"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to be found"
     echo "Output was: $output"
     return 1
@@ -715,7 +715,7 @@ assert_adapter_not_found() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "not.*found\|null\|empty"; then
+  if ! echo "$output" | grep -E -q "not.*found|null|empty"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to not be found"
     echo "Output was: $output"
     return 1
@@ -746,7 +746,7 @@ assert_is_registered() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "true\|registered\|found"; then
+  if ! echo "$output" | grep -E -q "true|registered|found"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to be registered"
     echo "Output was: $output"
     return 1
@@ -760,7 +760,7 @@ assert_is_not_registered() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "false\|not.*registered\|not.*found"; then
+  if ! echo "$output" | grep -E -q "false|not.*registered|not.*found"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to not be registered"
     echo "Output was: $output"
     return 1
@@ -857,7 +857,7 @@ assert_builtin_adapters_present() {
 assert_registry_initialized() {
   local output="$1"
 
-  if echo "$output" | grep -q "ERROR\|error\|failed\|Failed"; then
+  if echo "$output" | grep -iE -q "ERROR|error|failed"; then
     echo "ERROR: Expected registry initialization to succeed"
     echo "Output was: $output"
     return 1
@@ -870,7 +870,7 @@ assert_registry_initialized() {
 assert_no_adapters_registered() {
   local output="$1"
 
-  if echo "$output" | grep -q "bats\|rust\|test_adapter"; then
+  if echo "$output" | grep -E -q "bats|rust|test_adapter"; then
     echo "ERROR: Expected no adapters to be registered after cleanup"
     echo "Output was: $output"
     return 1
@@ -1331,7 +1331,7 @@ assert_method_call_failure_handled() {
   local output="$1"
 
   # Should indicate the failure was handled
-  if ! echo "$output" | grep -q "ERROR\|failed\|Method call failed"; then
+  if ! echo "$output" | grep -iE -q "ERROR|failed|Method call failed"; then
     echo "ERROR: Expected method call failure to be indicated"
     echo "Output was: $output"
     return 1
@@ -1345,7 +1345,7 @@ assert_invalid_return_value_handled() {
   local output="$1"
 
   # Should handle invalid JSON gracefully
-  if echo "$output" | grep -q "fatal\|crash"; then
+  if echo "$output" | grep -E -q "fatal|crash"; then
     echo "ERROR: Invalid return value should not cause crash"
     echo "Output was: $output"
     return 1
@@ -1376,7 +1376,7 @@ assert_initialization_failure_handled() {
   local output="$1"
 
   # Should indicate initialization failure was handled
-  if ! echo "$output" | grep -q "failed\|error\|initialization"; then
+  if ! echo "$output" | grep -iE -q "failed|error|initialization"; then
     echo "ERROR: Expected initialization failure to be indicated"
     echo "Output was: $output"
     return 1
@@ -1449,7 +1449,7 @@ assert_timeout_handled() {
   local output="$1"
 
   # Should handle timeout gracefully without crashing
-  if echo "$output" | grep -q "fatal\|crash"; then
+  if echo "$output" | grep -E -q "fatal|crash"; then
     echo "ERROR: Timeout should not cause crash"
     echo "Output was: $output"
     return 1
@@ -1463,7 +1463,7 @@ assert_resource_exhaustion_handled() {
   local output="$1"
 
   # Should handle many adapters without crashing
-  if echo "$output" | grep -q "fatal\|crash\|resource.*exhausted"; then
+  if echo "$output" | grep -E -q "fatal|crash|resource.*exhausted"; then
     echo "ERROR: Resource exhaustion should be handled gracefully"
     echo "Output was: $output"
     return 1
@@ -1635,7 +1635,7 @@ assert_project_scanner_handles_build_requirements() {
   local output="$1"
   
   # Should not contain build requirement errors
-  if echo "$output" | grep -q "ERROR.*build\|build.*failed\|build.*error"; then
+  if echo "$output" | grep -iE -q "ERROR.*build|build.*failed|build.*error"; then
     echo "ERROR: Expected project scanner to handle build requirements"
     echo "Output was: $output"
     return 1
@@ -1649,7 +1649,7 @@ assert_project_scanner_passes_test_image() {
   local output="$1"
   
   # Should indicate test_image parameter was passed
-  if ! echo "$output" | grep -q "test_image\|image.*passed"; then
+  if ! echo "$output" | grep -E -q "test_image|image.*passed"; then
     echo "ERROR: Expected test_image parameter to be passed to adapters"
     echo "Output was: $output"
     return 1
@@ -1663,7 +1663,7 @@ assert_project_scanner_integrates_build_steps() {
   local output="$1"
   
   # Should show build steps integration
-  if ! echo "$output" | grep -q "build.*step\|step.*build\|build.*integration"; then
+  if ! echo "$output" | grep -E -q "build.*step|step.*build|build.*integration"; then
     echo "ERROR: Expected build steps integration"
     echo "Output was: $output"
     return 1
@@ -1677,7 +1677,7 @@ assert_project_scanner_validates_interfaces() {
   local output="$1"
   
   # Should validate adapter interfaces
-  if ! echo "$output" | grep -q "interface\|validated\|compatibility"; then
+  if ! echo "$output" | grep -E -q "interface|validated|compatibility"; then
     echo "ERROR: Expected interface validation"
     echo "Output was: $output"
     return 1

@@ -656,7 +656,10 @@ assert_failing_adapters_skipped() {
 
   IFS=',' read -ra failing_array <<< "$failing_adapters"
   for adapter in "${failing_array[@]}"; do
-    if ! echo "$output" | grep -q "skip.*$adapter\|$adapter.*skip"; then
+    # Check for "skipped $adapter" or "$adapter" followed by "skip" (case insensitive)
+    # Escape the adapter identifier to handle any special regex characters
+    local escaped_adapter=$(printf '%s\n' "$adapter" | sed 's/[][\.*^$()+?{|]/\\&/g')
+    if ! echo "$output" | grep -iE -q "skip.*${escaped_adapter}|${escaped_adapter}.*skip"; then
       echo "ERROR: Expected failing adapter '$adapter' to be skipped"
       echo "Output was: $output"
       return 1
