@@ -213,10 +213,12 @@ rust_adapter_get_build_steps() {
   {
     "step_name": "compile",
     "docker_image": "rust:latest",
-    "build_command": "cargo build",
+    "install_dependencies_command": "",
+    "build_command": "cargo build --jobs \$(nproc)",
     "working_directory": "/workspace",
     "volume_mounts": [],
-    "environment_variables": {}
+    "environment_variables": {},
+    "cpu_cores": null
   }
 ]
 STEPS_EOF
@@ -225,7 +227,7 @@ STEPS_EOF
 # Rust adapter execute test suite method
 rust_adapter_execute_test_suite() {
   local test_suite="$1"
-  local build_artifacts="$2"
+  local test_image="$2"
   local execution_config="$3"
 
   cat << EXEC_EOF
@@ -234,7 +236,8 @@ rust_adapter_execute_test_suite() {
   "duration": 2.5,
   "output": "Mock Rust test execution output",
   "container_id": "rust_container",
-  "execution_method": "docker"
+  "execution_method": "docker",
+  "test_image": "${test_image}"
 }
 EXEC_EOF
 }

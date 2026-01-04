@@ -676,3 +676,8 @@ EOF
   echo "$file_path"
 }
 
+
+# Create a mixed framework project (alias for multi-framework)
+create_mixed_project() {
+  create_multi_framework_project "$@"
+}

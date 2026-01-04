@@ -381,7 +381,10 @@ if [[ "$MINIFY" == "true" ]]; then
   
   echo -e "${YELLOW}  Adding and minifying scanner.sh...${NC}"
   minify_script "$SRC_DIR/scanner.sh" >> "$TEMP_FILE"
-  
+
+  echo -e "${YELLOW}  Adding and minifying build_manager.sh...${NC}"
+  minify_script "$SRC_DIR/build_manager.sh" >> "$TEMP_FILE"
+
   echo -e "${YELLOW}  Adding and minifying main.sh...${NC}"
   minify_script "$SRC_DIR/main.sh" >> "$TEMP_FILE"
   
@@ -466,7 +469,14 @@ else
   echo "# ============================================================================" >> "$TEMP_FILE"
   cat "$SRC_DIR/scanner.sh" >> "$TEMP_FILE"
   echo "" >> "$TEMP_FILE"
-  
+
+  echo -e "${YELLOW}  Adding build_manager.sh...${NC}"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  echo "# Source: src/build_manager.sh" >> "$TEMP_FILE"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  cat "$SRC_DIR/build_manager.sh" >> "$TEMP_FILE"
+  echo "" >> "$TEMP_FILE"
+
   echo -e "${YELLOW}  Adding main.sh...${NC}"
   echo "# ============================================================================" >> "$TEMP_FILE"
   echo "# Source: src/main.sh" >> "$TEMP_FILE"

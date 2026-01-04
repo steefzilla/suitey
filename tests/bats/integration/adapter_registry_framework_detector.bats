@@ -4,6 +4,28 @@ load ../helpers/adapter_registry
 load ../helpers/framework_detector
 load ../helpers/fixtures
 
+# Source suitey.sh to get all functions
+# Try multiple possible locations using BATS_TEST_DIRNAME
+if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../suitey.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../../../suitey.sh"
+else
+  # Fallback: try to find it from the workspace root
+  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  if [[ -f "$suitey_script" ]]; then
+    source "$suitey_script"
+  else
+    echo "ERROR: Could not find suitey.sh" >&2
+    exit 1
+  fi
+fi
+
+# Enable integration test mode for real Docker operations
+export SUITEY_INTEGRATION_TEST=1
+
 # ============================================================================
 # Framework Detector - Adapter Registry Integration Tests
 # ============================================================================

@@ -96,13 +96,24 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
 ${adapter_identifier}_adapter_execute_test_suite() {
   local test_suite="\$1"
-  local build_artifacts="\$2"
+  local test_image="\$2"
   local execution_config="\$3"
 
   cat << EXEC_EOF
@@ -111,7 +122,8 @@ ${adapter_identifier}_adapter_execute_test_suite() {
   "duration": 1.5,
   "output": "Mock test output",
   "container_id": "mock_container",
-  "execution_method": "mock"
+  "execution_method": "mock",
+  "test_image": "\${test_image:-}"
 }
 EXEC_EOF
 }
@@ -202,13 +214,24 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
 ${adapter_identifier}_adapter_execute_test_suite() {
   local test_suite="\$1"
-  local build_artifacts="\$2"
+  local test_image="\$2"
   local execution_config="\$3"
 
   cat << EXEC_EOF
@@ -217,7 +240,8 @@ ${adapter_identifier}_adapter_execute_test_suite() {
   "duration": 1.5,
   "output": "Mock test output",
   "container_id": "mock_container",
-  "execution_method": "mock"
+  "execution_method": "mock",
+  "test_image": "\${test_image:-}"
 }
 EXEC_EOF
 }
@@ -390,7 +414,18 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
@@ -1461,5 +1496,192 @@ assert_concurrent_access_handled() {
     return 1
   fi
 
+  return 0
+}
+
+# ============================================================================
+# Build Manager Interface Validation Helpers
+# ============================================================================
+
+# Assert build steps contain install_dependencies_command
+assert_build_steps_has_install_dependencies() {
+  local build_steps_json="$1"
+
+  if ! echo "$build_steps_json" | grep -q "install_dependencies_command"; then
+    echo "ERROR: Expected install_dependencies_command field in build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps contain cpu_cores
+assert_build_steps_has_cpu_cores() {
+  local build_steps_json="$1"
+
+  if ! echo "$build_steps_json" | grep -q "cpu_cores"; then
+    echo "ERROR: Expected cpu_cores field in build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build command supports parallel builds
+assert_build_command_parallel() {
+  local build_steps_json="$1"
+
+  if ! echo "$build_steps_json" | grep -q "jobs.*\$(nproc)"; then
+    echo "ERROR: Expected parallel build command with --jobs \$(nproc)"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps is empty array
+assert_build_steps_empty_array() {
+  local build_steps_json="$1"
+
+  if [[ "$build_steps_json" != "[]" ]]; then
+    echo "ERROR: Expected empty array for build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution succeeded (has valid exit_code)
+assert_execution_succeeded() {
+  local execution_result_json="$1"
+
+  if ! echo "$execution_result_json" | grep -q '"exit_code"'; then
+    echo "ERROR: Expected exit_code field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution result contains test_image
+assert_execution_result_has_test_image() {
+  local execution_result_json="$1"
+
+  if ! echo "$execution_result_json" | grep -q '"test_image"'; then
+    echo "ERROR: Expected test_image field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution result does not contain build_artifacts
+assert_execution_result_no_build_artifacts() {
+  local execution_result_json="$1"
+
+  if echo "$execution_result_json" | grep -q '"build_artifacts"'; then
+    echo "ERROR: Should not contain build_artifacts field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps JSON is valid
+assert_build_steps_valid_json() {
+  local build_steps_json="$1"
+
+  # Check for required fields
+  local required_fields=("step_name" "docker_image" "install_dependencies_command" "build_command" "working_directory" "volume_mounts" "environment_variables" "cpu_cores")
+
+  for field in "${required_fields[@]}"; do
+    if ! echo "$build_steps_json" | grep -q "\"$field\""; then
+      echo "ERROR: Missing required field '$field' in build steps JSON"
+      echo "Build steps: $build_steps_json"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Assert execution result JSON is valid
+assert_execution_result_valid_json() {
+  local execution_result_json="$1"
+
+  # Check for required fields
+  local required_fields=("exit_code" "duration" "output" "container_id" "execution_method" "test_image")
+
+  for field in "${required_fields[@]}"; do
+    if ! echo "$execution_result_json" | grep -q "\"$field\""; then
+      echo "ERROR: Missing required field '$field' in execution result JSON"
+      echo "Execution result: $execution_result_json"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Assert project scanner handles build requirements
+assert_project_scanner_handles_build_requirements() {
+  local output="$1"
+  
+  # Should not contain build requirement errors
+  if echo "$output" | grep -q "ERROR.*build\|build.*failed\|build.*error"; then
+    echo "ERROR: Expected project scanner to handle build requirements"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner passes test_image to adapters
+assert_project_scanner_passes_test_image() {
+  local output="$1"
+  
+  # Should indicate test_image parameter was passed
+  if ! echo "$output" | grep -q "test_image\|image.*passed"; then
+    echo "ERROR: Expected test_image parameter to be passed to adapters"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner integrates build steps
+assert_project_scanner_integrates_build_steps() {
+  local output="$1"
+  
+  # Should show build steps integration
+  if ! echo "$output" | grep -q "build.*step\|step.*build\|build.*integration"; then
+    echo "ERROR: Expected build steps integration"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner validates interfaces
+assert_project_scanner_validates_interfaces() {
+  local output="$1"
+  
+  # Should validate adapter interfaces
+  if ! echo "$output" | grep -q "interface\|validated\|compatibility"; then
+    echo "ERROR: Expected interface validation"
+    echo "Output was: $output"
+    return 1
+  fi
+  
   return 0
 }

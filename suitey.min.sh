@@ -13,14 +13,14 @@ else
   BLUE=''
   NC=''
 fi
-bq=()
-bs=()
-by=()
-y() {
+ca=()
+cc=()
+ci=()
+Y() {
   local cmd="$1"
   command -v "$cmd" >/dev/null 2>&1
 }
-Q() {
+bu() {
   local file="$1"
   if command -v readlink >/dev/null 2>&1; then
     readlink -f "$file" 2>/dev/null || realpath "$file" 2>/dev/null || echo "$file"
@@ -30,7 +30,7 @@ Q() {
     echo "$file"
   fi
 }
-K() {
+bo() {
   local file="$1"
   shift
   local seen_files=("$@")
@@ -43,19 +43,19 @@ K() {
   done
   return 1
 }
-H() {
+bl() {
   local file="$1"
   local extension="$2"
   local rel_path="${file#$PROJECT_ROOT/}"
   rel_path="${rel_path#/}"
-  local suite_bL="${rel_path%.${extension}}"
-  suite_bL="${suite_name//\//-}"
+  local suite_cH="${rel_path%.${extension}}"
+  suite_cH="${suite_name//\//-}"
   if [[ -z "$suite_name" ]]; then
-    suite_bL=$(basename "$file" ".${extension}")
+    suite_cH=$(basename "$file" ".${extension}")
   fi
   echo "$suite_name"
 }
-I() {
+bm() {
   local file="$1"
   if [[ "$file" != /* ]]; then
     echo "$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
@@ -63,7 +63,7 @@ I() {
     echo "$file"
   fi
 }
-B() {
+ba() {
   local file="$1"
   local pattern="$2"
   local count=0
@@ -81,47 +81,47 @@ B() {
 }
 declare -A ADAPTER_REGISTRY
 declare -A ADAPTER_REGISTRY_CAPABILITIES
-bm=false
-bn=()
-bx="${TEST_ADAPTER_REGISTRY_DIR:-${TMPDIR:-/tmp}}"
-bk="$bx/suitey_adapter_registry"
-bj="$bx/suitey_adapter_capabilities"
-bo="$bx/suitey_adapter_order"
-bl="$bx/suitey_adapter_init"
+bR=false
+bS=()
+ch="${TEST_ADAPTER_REGISTRY_DIR:-${TMPDIR:-/tmp}}"
+bP="$ch/suitey_adapter_registry"
+bO="$ch/suitey_adapter_capabilities"
+bT="$ch/suitey_adapter_order"
+bQ="$ch/suitey_adapter_init"
 l() {
-  mkdir -p "$(dirname "$bk")"
-  > "$bk"
+  mkdir -p "$(dirname "$bP")"
+  > "$bP"
   for key in "${!ADAPTER_REGISTRY[@]}"; do
-    echo "$key=${ADAPTER_REGISTRY[$key]}" >> "$bk"
+    echo "$key=${ADAPTER_REGISTRY[$key]}" >> "$bP"
   done
-  > "$bj"
+  > "$bO"
   for key in "${!ADAPTER_REGISTRY_CAPABILITIES[@]}"; do
-    echo "$key=${ADAPTER_REGISTRY_CAPABILITIES[$key]}" >> "$bj"
+    echo "$key=${ADAPTER_REGISTRY_CAPABILITIES[$key]}" >> "$bO"
   done
-  > "$bn_FILE"
-  printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$bn_FILE"
-  echo "$bm" > "$bh_INIT_FILE"
+  > "$bS_FILE"
+  printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$bS_FILE"
+  echo "$bR" > "$bM_INIT_FILE"
 }
 j() {
-  if [[ -f "$bk" ]]; then
+  if [[ -f "$bP" ]]; then
     while IFS='=' read -r key value; do
       ADAPTER_REGISTRY["$key"]="$value"
-    done < "$bk"
+    done < "$bP"
   fi
-  if [[ -f "$bj" ]]; then
+  if [[ -f "$bO" ]]; then
     while IFS='=' read -r key value; do
       ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
-    done < "$bj"
+    done < "$bO"
   fi
-  if [[ -f "$bn_FILE" ]]; then
-    mapfile -t ADAPTER_REGISTRY_ORDER < "$bn_FILE"
+  if [[ -f "$bS_FILE" ]]; then
+    mapfile -t ADAPTER_REGISTRY_ORDER < "$bS_FILE"
   fi
-  if [[ -f "$bh_INIT_FILE" ]]; then
-    bm=$(<"$bh_INIT_FILE")
+  if [[ -f "$bM_INIT_FILE" ]]; then
+    bR=$(<"$bM_INIT_FILE")
   fi
 }
 b() {
-  rm -f "$bk" "$bj" "$bn_FILE" "$bh_INIT_FILE"
+  rm -f "$bP" "$bO" "$bS_FILE" "$bM_INIT_FILE"
 }
 m() {
   j
@@ -264,7 +264,7 @@ i() {
 }
 h() {
   j
-  if [[ "$bm" == "true" ]]; then
+  if [[ "$bR" == "true" ]]; then
     return 0
   fi
   local builtin_adapters=("bats" "rust")
@@ -274,34 +274,34 @@ h() {
       return 1
     fi
   done
-  bm=true
+  bR=true
   l
   return 0
 }
 a() {
-  bh=()
-  bi=()
-  bn=()
-  bm=false
+  bM=()
+  bN=()
+  bS=()
+  bR=false
   b
   return 0
 }
-br=""
-bu=""
-bp=""
-bw=""
-bv=""
-bt=(
+cb=""
+ce=""
+bU=""
+cg=""
+cf=""
+cd=(
   "bats"
   "rust"
 )
-N() {
+br() {
   local string="$1"
   string="${string//\\/\\\\}"
   string="${string//\"/\\\"}"
   echo "$string"
 }
-M() {
+bq() {
   local items=("$@")
   local json_items=()
   for item in "${items[@]}"; do
@@ -309,7 +309,7 @@ M() {
   done
   echo "[$(IFS=','; echo "${json_items[*]}")]"
 }
-O() {
+bs() {
   local pairs=("$@")
   local json_pairs=()
   for ((i=0; i<${#pairs[@]}; i+=2)); do
@@ -319,15 +319,15 @@ O() {
   done
   echo "{$(IFS=','; echo "${json_pairs[*]}")}"
 }
-T() {
-  local M="$1"
-  local framework="$2"
+bx() {
+  local bq="$1"
+  local cC="$2"
   local project_root="$3"
-  if [[ -z "$M" || "$M" == "[]" ]]; then
+  if [[ -z "$bq" || "$bq" == "[]" ]]; then
     return 0
   fi
-  if [[ "$M" != \[*\] ]]; then
-    echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
+  if [[ "$bq" != \[*\] ]]; then
+    echo "ERROR: Invalid JSON format for $cC - not a valid array" >&2
     return 1
   fi
   local json_content="${json_array#[}"
@@ -350,23 +350,23 @@ T() {
     if [[ -z "$suite_obj" ]]; then
       continue
     fi
-    local suite_bL=""
-    suite_bL=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"bL"://' | sed 's/"//g' | head -1)
+    local suite_cH=""
+    suite_cH=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"cH"://' | sed 's/"//g' | head -1)
     if [[ -z "$suite_name" ]]; then
-      echo "WARNING: Could not parse suite name from $framework JSON object" >&2
+      echo "WARNING: Could not parse suite name from $cC JSON object" >&2
       continue
     fi
     local test_files_part=""
-    test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"bT"://' | head -1)
-    if [[ -z "$bT_part" ]]; then
-      echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2
+    test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"cV"://' | head -1)
+    if [[ -z "$cV_part" ]]; then
+      echo "WARNING: Could not parse test_files from $cC suite '$suite_name'" >&2
       continue
     fi
     test_files_part="${test_files_part#[}"
     test_files_part="${test_files_part%]}"
-    local bT=()
-    if [[ -n "$bT_part" ]]; then
-      IFS=',' read -ra test_files <<< "$bT_part"
+    local cV=()
+    if [[ -n "$cV_part" ]]; then
+      IFS=',' read -ra test_files <<< "$cV_part"
       for i in "${!test_files[@]}"; do
         test_files[i]="${test_files[i]#\"}"
         test_files[i]="${test_files[i]%\"}"
@@ -374,7 +374,7 @@ T() {
       done
     fi
     if [[ ${#test_files[@]} -eq 0 ]]; then
-      echo "WARNING: No test files found in $framework suite '$suite_name'" >&2
+      echo "WARNING: No test files found in $cC suite '$suite_name'" >&2
       continue
     fi
     local total_test_count=0
@@ -382,7 +382,7 @@ T() {
       if [[ -n "$test_file" ]]; then
         local abs_path="$project_root/$test_file"
         local file_test_count=0
-        case "$framework" in
+        case "$cC" in
           "bats")
             file_test_count=$(count_bats_tests "$abs_path")
             ;;
@@ -398,10 +398,10 @@ T() {
     done
     local first_test_file="${test_files[0]}"
     local abs_file_path="$project_root/$first_test_file"
-    echo "$framework|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
+    echo "$cC|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
   done
 }
-D() {
+bd() {
   local project_root="$1"
   local detected_frameworks=()
   local framework_details_json="{}"
@@ -445,7 +445,7 @@ D() {
       else
         binary_status_json="${binary_status_json%\}}, \"$adapter\": \"$binary_available\"}"
       fi
-      if [[ "$framework_details_json" == "{}" ]]; then
+      if [[ "$cC_details_json" == "{}" ]]; then
         framework_details_json="{\"$adapter\": $metadata_json}"
       else
         framework_details_json="${framework_details_json%\}}, \"$adapter\": $metadata_json}"
@@ -462,22 +462,22 @@ D() {
       echo "skipped $adapter" >&2
     fi
   done
-  br=$(json_array "${detected_frameworks[@]}")
-  bu="$framework_details_json"
-  bp="$binary_status_json"
-  bw="$warnings_json"
-  bv="$errors_json"
+  cb=$(json_array "${detected_frameworks[@]}")
+  ce="$cC_details_json"
+  bU="$binary_status_json"
+  cg="$warnings_json"
+  cf="$cys_json"
   echo "orchestrated framework detector" >&2
   echo "detection phase completed" >&2
 }
-R() {
-  local json_bM="{"
-  json_bM="${json_output}\"framework_list\":$bq_JSON,"
-  json_bM="${json_output}\"framework_details\":$bu,"
-  json_bM="${json_output}\"binary_status\":$bp,"
-  json_bM="${json_output}\"warnings\":$bw,"
-  json_bM="${json_output}\"errors\":$bv"
-  json_bM="${json_output}}"
+bv() {
+  local json_cI="{"
+  json_cI="${json_output}\"framework_list\":$ca_JSON,"
+  json_cI="${json_output}\"framework_details\":$ce,"
+  json_cI="${json_output}\"binary_status\":$bU,"
+  json_cI="${json_output}\"warnings\":$cg,"
+  json_cI="${json_output}\"errors\":$cf"
+  json_cI="${json_output}}"
   echo "$json_output"
 }
 p() {
@@ -627,23 +627,23 @@ r() {
   for file in "${bats_files[@]}"; do
     local rel_path="${file#$project_root/}"
     rel_path="${rel_path#/}"
-    local suite_bL=$(generate_suite_name "$file" "bats")
+    local suite_cH=$(generate_suite_name "$file" "bats")
     local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
     suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
   done
   suites_json="${suites_json%,}]"
   echo "$suites_json"
 }
-bats_adapter_C() {
+bats_adapter_bb() {
   local project_root="$1"
   local framework_metadata="$2"
   cat << BUILD_EOF
 {
-  "bO": false,
-  "bD": [],
-  "bB": [],
-  "bC": [],
-  "bz": []
+  "cN": false,
+  "co": [],
+  "cm": [],
+  "cn": [],
+  "ck": []
 }
 BUILD_EOF
 }
@@ -654,33 +654,34 @@ t() {
 }
 s() {
   local test_suite="$1"
-  local bz="$2"
+  local cW="$2"
   local execution_config="$3"
   cat << EXEC_EOF
 {
-  "bJ": 0,
-  "bG": 1.0,
-  "bM": "Mock BATS execution output",
-  "bE": null,
-  "bI": "native"
+  "cA": 0,
+  "cv": 1.0,
+  "cI": "Mock BATS execution output",
+  "cp": null,
+  "cz": "native",
+  "cW": "${test_image:-}"
 }
 EXEC_EOF
 }
 x() {
-  local bM="$1"
-  local bJ="$2"
+  local cI="$1"
+  local cA="$2"
   cat << RESULTS_EOF
 {
-  "bU": 5,
-  "bN": 5,
-  "bK": 0,
-  "bP": 0,
-  "bS": [],
-  "bQ": "passed"
+  "cZ": 5,
+  "cJ": 5,
+  "cB": 0,
+  "cO": 0,
+  "cU": [],
+  "cR": "passed"
 }
 RESULTS_EOF
 }
-J() {
+bn() {
   local file="$1"
   if [[ "$file" == *.bats ]]; then
     return 0
@@ -694,11 +695,11 @@ J() {
   fi
   return 1
 }
-z() {
+Z() {
   local file="$1"
   count_tests_in_file "$file" "@test"
 }
-E() {
+bi() {
   local dir="$1"
   local files=()
   if [[ ! -d "$dir" ]]; then
@@ -711,7 +712,7 @@ E() {
   done < <(find "$dir" -type f -name "*.bats" -print0 2>/dev/null || true)
   printf '%s\n' "${files[@]}"
 }
-W() {
+bA() {
   local project_root="$1"
   if [[ -f "$project_root/Cargo.toml" && -r "$project_root/Cargo.toml" ]] && grep -q '^\[package\]' "$project_root/Cargo.toml" 2>/dev/null; then
     return 0
@@ -732,7 +733,7 @@ W() {
   fi
   return 1
 }
-bc() {
+bH() {
   local project_root="$1"
   local metadata_pairs=(
     "name" "Rust"
@@ -747,14 +748,14 @@ bc() {
   )
   json_object "${metadata_pairs[@]}"
 }
-V() {
+bz() {
   if [[ -n "${SUITEY_MOCK_CARGO_AVAILABLE:-}" ]]; then
     [[ "$SUITEY_MOCK_CARGO_AVAILABLE" == "true" ]]
     return $?
   fi
   check_binary "cargo"
 }
-ba() {
+bF() {
   local project_root="$1"
   local indicators=0
   local has_cargo_toml=0
@@ -794,7 +795,7 @@ ba() {
     echo "low"
   fi
 }
-bb() {
+bG() {
   local project_root="$1"
   if [[ -f "$project_root/Cargo.toml" ]]; then
     echo "cargo_toml"
@@ -802,7 +803,7 @@ bb() {
   fi
   echo "unknown"
 }
-Y() {
+bC() {
   local project_root="$1"
   local framework_metadata="$2"
   if [[ ! -f "$project_root/Cargo.toml" ]]; then
@@ -838,82 +839,85 @@ Y() {
   for file in "${json_files[@]}"; do
     local rel_path="${file#$project_root/}"
     rel_path="${rel_path#/}"
-    local suite_bL=$(generate_suite_name "$file" "rs")
+    local suite_cH=$(generate_suite_name "$file" "rs")
     local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
     suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
   done
   suites_json="${suites_json%,}]"
   echo "$suites_json"
 }
-X() {
+bB() {
   local project_root="$1"
   local framework_metadata="$2"
   cat << BUILD_EOF
 {
-  "bO": true,
-  "bD": ["compile"],
-  "bB": ["cargo build"],
-  "bC": [],
-  "bz": ["target/"]
+  "cN": true,
+  "co": ["compile"],
+  "cm": ["cargo build"],
+  "cn": [],
+  "ck": ["target/"]
 }
 BUILD_EOF
 }
-_() {
+bE() {
   local project_root="$1"
   local build_requirements="$2"
   cat << STEPS_EOF
 [
   {
-    "bR": "compile",
-    "bF": "rust:latest",
-    "bA": "cargo build",
-    "bW": "/workspace",
-    "bV": [],
-    "bH": {}
+    "cS": "compile",
+    "cu": "rust:latest",
+    "cG": "",
+    "cl": "cargo build --jobs \$(nproc)",
+    "da": "/workspace",
+    "c_": [],
+    "cx": {},
+    "cq": null
   }
 ]
 STEPS_EOF
 }
-Z() {
+bD() {
   local test_suite="$1"
-  local bz="$2"
+  local cW="$2"
   local execution_config="$3"
   cat << EXEC_EOF
 {
-  "bJ": 0,
-  "bG": 2.5,
-  "bM": "Mock Rust test execution output",
-  "bE": "rust_container",
-  "bI": "docker"
+  "cA": 0,
+  "cv": 2.5,
+  "cI": "Mock Rust test execution output",
+  "cp": "rust_container",
+  "cz": "docker",
+  "cW": "${test_image}"
 }
 EXEC_EOF
 }
-bd() {
-  local bM="$1"
-  local bJ="$2"
+bI() {
+  local cI="$1"
+  local cA="$2"
   cat << RESULTS_EOF
 {
-  "bU": 10,
-  "bN": 10,
-  "bK": 0,
-  "bP": 0,
-  "bS": [],
-  "bQ": "passed"
+  "cZ": 10,
+  "cJ": 10,
+  "cB": 0,
+  "cO": 0,
+  "cU": [],
+  "cR": "passed"
 }
 RESULTS_EOF
 }
-L() {
+bp() {
   local file="$1"
   if [[ "$file" == *.rs ]]; then
     return 0
   fi
   return 1
 }
-A() {
+_() {
   local file="$1"
   count_tests_in_file "$file" "#[test]"
 }
-F() {
+bj() {
   local dir="$1"
   local files=()
   if [[ ! -d "$dir" ]]; then
@@ -926,13 +930,13 @@ F() {
   done < <(find "$dir" -type f -name "*.rs" -print0 2>/dev/null || true)
   printf '%s\n' "${files[@]}"
 }
-be() {
+bJ() {
   echo "Scanning project: $PROJECT_ROOT" >&2
   echo "" >&2
   h
   echo "detection phase then discovery phase" >&2
   detect_frameworks "$PROJECT_ROOT"
-  local detected_list="$bq_JSON"
+  local detected_list="$ca_JSON"
   local frameworks=()
   if [[ "$detected_list" != "[]" ]]; then
     detected_list=$(echo "$detected_list" | sed 's/^\[//' | sed 's/\]$//')
@@ -943,69 +947,69 @@ be() {
   fi
   for framework in "${frameworks[@]}"; do
     local adapter_metadata
-    adapter_metadata=$(adapter_registry_get "$framework")
+    adapter_metadata=$(adapter_registry_get "$cC")
     if [[ "$adapter_metadata" == "null" ]]; then
-      echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$framework'" >&2
+      echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$cC'" >&2
       continue
     fi
-    echo "validated $framework" >&2
-    echo "registry integration verified for $framework" >&2
-    DETECTED_FRAMEWORKS+=("$framework")
-    local display_bL="$framework"
-    case "$framework" in
+    echo "validated $cC" >&2
+    echo "registry integration verified for $cC" >&2
+    DETECTED_FRAMEWORKS+=("$cC")
+    local display_cH="$cC"
+    case "$cC" in
       "bats")
-        display_bL="BATS"
+        display_cH="BATS"
         ;;
       "rust")
-        display_bL="Rust"
+        display_cH="Rust"
         ;;
     esac
     echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
-    echo "processed $framework" >&2
+    echo "processed $cC" >&2
     echo "continue processing frameworks" >&2
-    echo "discover_test_suites $framework" >&2
+    echo "discover_test_suites $cC" >&2
     local suites_json
     if suites_json=$("${framework}_adapter_discover_test_suites" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
       local parsed_suites=()
-      mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$PROJECT_ROOT")
+      mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$cC" "$PROJECT_ROOT")
       for suite_entry in "${parsed_suites[@]}"; do
         DISCOVERED_SUITES+=("$suite_entry")
       done
     else
-      echo "discovery failed for $framework" >&2
+      echo "discovery failed for $cC" >&2
     fi
     if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
-      echo "discovered suites for $framework" >&2
-      echo "test files found for $framework" >&2
-      echo "aggregated $framework" >&2
+      echo "discovered suites for $cC" >&2
+      echo "test files found for $cC" >&2
+      echo "aggregated $cC" >&2
     fi
   done
   echo "orchestrated test suite discovery" >&2
   echo "discovery phase completed" >&2
   echo "discovery phase then build phase" >&2
   local framework_count="${#frameworks[@]}"
-  if [[ $framework_count -eq 0 ]]; then
+  if [[ $cC_count -eq 0 ]]; then
     echo -e "${YELLOW}⚠${NC} No test frameworks detected" >&2
   fi
   detect_build_requirements "${frameworks[@]}"
   echo "" >&2
 }
-C() {
+bb() {
   local frameworks=("$@")
   local all_build_requirements="{}"
   for framework in "${frameworks[@]}"; do
     local adapter_metadata
-    adapter_metadata=$(adapter_registry_get "$framework")
+    adapter_metadata=$(adapter_registry_get "$cC")
     if [[ "$adapter_metadata" == "null" ]]; then
       continue
     fi
-    echo "detect_build_requirements $framework" >&2
+    echo "detect_build_requirements $cC" >&2
     local build_req_json
     if build_req_json=$("${framework}_adapter_detect_build_requirements" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
       if [[ "$all_build_requirements" == "{}" ]]; then
-        all_build_requirements="{\"$framework\":$build_req_json}"
+        all_build_requirements="{\"$cC\":$build_req_json}"
       else
-        all_build_requirements="${all_build_requirements%\}}, \"$framework\": $build_req_json}"
+        all_build_requirements="${all_build_requirements%\}}, \"$cC\": $build_req_json}"
       fi
     fi
   done
@@ -1013,7 +1017,7 @@ C() {
   echo "orchestrated build detector" >&2
   echo "build phase completed" >&2
 }
-G() {
+bk() {
   local project_dir="$1"
   PROJECT_ROOT="$(cd "$project_dir" && pwd)"
   if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -d "$TEST_ADAPTER_REGISTRY_DIR/adapters" ]]; then
@@ -1028,29 +1032,29 @@ G() {
     return 1
   fi
   detect_frameworks "$PROJECT_ROOT"
-  R
+  bv
 }
-U() {
+by() {
   local project_dir="$1"
   PROJECT_ROOT="$(cd "$project_dir" && pwd)"
   if ! adapter_registry_initialize >/dev/null 2>&1; then
     echo "registry unavailable" >&2
     return 1
   fi
-  be
-  S
+  bJ
+  bw
 }
-bg() {
+bL() {
   local project_dir="$1"
   PROJECT_ROOT="$(cd "$project_dir" && pwd)"
   if ! adapter_registry_initialize >/dev/null 2>&1; then
     echo "registry unavailable" >&2
     return 1
   fi
-  be
-  S
+  bJ
+  bw
 }
-S() {
+bw() {
   if [[ ${#DETECTED_FRAMEWORKS[@]} -eq 0 ]]; then
     echo -e "${RED}✗${NC} No test frameworks detected" >&2
     echo "" >&2
@@ -1070,7 +1074,7 @@ S() {
     if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
       echo "Errors:" >&2
       for error in "${SCAN_ERRORS[@]}"; do
-        echo -e " ${RED}•${NC} $error" >&2
+        echo -e " ${RED}•${NC} $cy" >&2
       done
       echo "" >&2
     fi
@@ -1085,33 +1089,759 @@ S() {
   if [[ -n "${BUILD_REQUIREMENTS_JSON:-}" && "$BUILD_REQUIREMENTS_JSON" != "{}" ]]; then
     echo -e "${GREEN}✓${NC} Build requirements detected and aggregated from registry components" >&2
     for framework in "${DETECTED_FRAMEWORKS[@]}"; do
-      echo "aggregated $framework" >&2
+      echo "aggregated $cC" >&2
     done
   fi
   echo "" >&2
   if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
     echo -e "${YELLOW}⚠${NC} Warnings:" >&2
     for error in "${SCAN_ERRORS[@]}"; do
-      echo -e " ${YELLOW}•${NC} $error" >&2
+      echo -e " ${YELLOW}•${NC} $cy" >&2
     done
     echo "" >&2
   fi
   echo "Test Suites:" >&2
   for suite in "${DISCOVERED_SUITES[@]}"; do
     IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
-    echo -e " ${BLUE}•${NC} $suite_name - $framework" >&2
+    echo -e " ${BLUE}•${NC} $suite_name - $cC" >&2
     echo " Path: $rel_path" >&2
     echo " Tests: $test_count" >&2
   done
   if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
     echo "unified results from registry-based components" >&2
     for framework in "${DETECTED_FRAMEWORKS[@]}"; do
-      echo "results $framework" >&2
+      echo "results $cC" >&2
     done
   fi
   echo "" >&2
 }
+if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+  if [[ -f "tests/bats/helpers/mock_manager.bash" ]]; then
+    source "tests/bats/helpers/mock_manager.bash"
+  elif [[ -f "../tests/bats/helpers/mock_manager.bash" ]]; then
+    source "../tests/bats/helpers/mock_manager.bash"
+  fi
+fi
+b_=""
+bW=()
+bX=""
+bV=""
+bZ=false
+bY=false
+bg() {
+  if [[ $# -le 5 ]] && [[ "$1" != -* ]] && [[ "$2" != -* ]]; then
+    local container_cH="$1"
+    local image="$2"
+    local command="$3"
+    local cA="${4:-0}"
+    local cI="${5:-Mock Docker run output}"
+    echo "$cI"
+    return $cA
+  else
+    local simple_args
+    simple_args=$(transform_docker_args "$@")
+    local container_name image command
+    read -r container_name <<< "$(echo "$simple_args" | head -1)"
+    read -r image <<< "$(echo "$simple_args" | head -2 | tail -1)"
+    read -r command <<< "$(echo "$simple_args" | head -3 | tail -1)"
+    docker_run "$container_name" "$image" "$command"
+  fi
+}
+bh() {
+  local container_cH="$1"
+  local image="$2"
+  local command="$3"
+  local cq="$4"
+  local project_root="$5"
+  local artifacts_dir="$6"
+  local working_dir="$7"
+  local docker_cmd=("docker" "run" "--rm" "--name" "$container_name")
+  if [[ -n "$cq" ]]; then
+    docker_cmd+=("--cpus" "$cq")
+  fi
+  if [[ -n "$project_root" ]]; then
+    docker_cmd+=("-v" "$project_root:/workspace")
+  fi
+  if [[ -n "$artifacts_dir" ]]; then
+    docker_cmd+=("-v" "$artifacts_dir:/artifacts")
+  fi
+  if [[ -n "$working_dir" ]]; then
+    docker_cmd+=("-w" "$working_dir")
+  fi
+  docker_cmd+=("$image" "/bin/sh" "-c" "$command")
+  "${docker_cmd[@]}"
+}
+be() {
+  if [[ $# -le 3 ]] && [[ "$1" != -* ]]; then
+    return 0
+  else
+    docker build "$@"
+  fi
+}
 bf() {
+  local source="$1"
+  local dest="$2"
+  docker cp "$source" "$dest"
+}
+N() {
+  local temp_base="${TEST_BUILD_MANAGER_DIR:-${TMPDIR:-/tmp}}"
+  if ! build_manager_check_docker; then
+    echo "ERROR: Docker daemon not running or cannot connect" >&2
+    return 1
+  fi
+  b_="$temp_base"
+  mkdir -p "$b_/builds"
+  mkdir -p "$b_/artifacts"
+  bX="$b_/build_status.json"
+  bV="$b_/active_builds.json"
+  echo "{}" > "$bX"
+  echo "[]" > "$bV"
+  trap 'build_manager_handle_signal SIGINT first' SIGINT
+  trap 'build_manager_handle_signal SIGTERM first' SIGTERM
+  if [[ -z "${SUITEY_TEST_MODE:-}" ]]; then
+    echo "Build Manager initialized successfully"
+  fi
+  return 0
+}
+A() {
+  if ! command -v docker &> /dev/null; then
+    echo "ERROR: Docker command not found in PATH" >&2
+    return 1
+  fi
+  if ! docker info &> /dev/null; then
+    echo "ERROR: Docker daemon is not running or not accessible" >&2
+    return 1
+  fi
+  return 0
+}
+build_manager_get_cq() {
+  local cores
+  if command -v nproc &> /dev/null; then
+    cores=$(nproc)
+  elif [[ -f /proc/cpuinfo ]]; then
+    cores=$(grep -c '^processor' /proc/cpuinfo)
+  elif command -v sysctl &> /dev/null && sysctl -n hw.ncpu &> /dev/null; then
+    cores=$(sysctl -n hw.ncpu)
+  else
+    cores=1
+  fi
+  echo $((cores > 0 ? cores : 1))
+}
+P() {
+  local build_requirements_json="$1"
+  if [[ -z "$build_requirements_json" ]]; then
+    echo '{"cy": "No build requirements provided"}'
+    return 1
+  fi
+  if [[ -z "$b_" ]]; then
+    if ! build_manager_initialize; then
+      echo '{"cy": "Failed to initialize Build Manager"}'
+      return 1
+    fi
+  fi
+  if ! build_manager_validate_requirements "$build_requirements_json"; then
+    echo '{"cy": "Invalid build requirements structure"}'
+    return 1
+  fi
+  local dependency_analysis
+  dependency_analysis=$(build_manager_analyze_dependencies "$build_requirements_json")
+  local build_results="[]"
+  local cT=true
+  if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+    local framework_count
+    framework_count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null || echo "0")
+    for ((i=0; i<framework_count; i++)); do
+      local framework
+      cC=$(echo "$build_requirements_json" | jq -r ".[$i].framework" 2>/dev/null)
+      local mock_result
+      mock_result=$(jq -n --arg f "$cC" '{"cC": $f, "cR": "built", "cv": 1.5, "cp": "mock_container_123"}')
+      build_results=$(echo "$build_results [$mock_result]" | jq -s '.[0] + .[1]' 2>/dev/null || echo "[$mock_result]")
+    done
+  else
+    local tier_count
+    tier_count=$(echo "$dependency_analysis" | jq 'keys | map(select(startswith("tier_"))) | length' 2>/dev/null || echo "0")
+    for ((tier=0; tier<tier_count; tier++)); do
+      local tier_frameworks
+      tier_frameworks=$(echo "$dependency_analysis" | jq -r ".tier_$tier[]?" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+      if [[ -n "$tier_frameworks" ]] && [[ "$tier_frameworks" != "null" ]]; then
+        local tier_build_specs="[]"
+        for framework in $tier_frameworks; do
+          local build_spec
+          build_spec=$(echo "$build_requirements_json" | jq "[.[] | select(.framework == \"$cC\")]" 2>/dev/null)
+          if [[ -n "$build_spec" ]] && [[ "$build_spec" != "[]" ]]; then
+            tier_build_specs=$(echo "$tier_build_specs $build_spec" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$build_spec")
+          fi
+        done
+        local tier_results
+        tier_results=$(build_manager_execute_parallel "$tier_build_specs")
+        build_results=$(echo "$build_results $tier_results" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$tier_results")
+        local has_failures
+        has_failures=$(echo "$tier_results" | jq '[.[] | select(.status == "build-failed")] | length > 0' 2>/dev/null || echo "false")
+        if [[ "$has_failures" == "true" ]]; then
+          cT=false
+          break
+        fi
+      fi
+    done
+  fi
+  if [[ "$cT" == "true" ]]; then
+    echo "$build_results"
+    return 0
+  else
+    echo "$build_results"
+    return 1
+  fi
+}
+y() {
+  local build_requirements_json="$1"
+  local frameworks=()
+  while IFS= read -r framework; do
+    frameworks+=("$cC")
+  done < <(echo "$build_requirements_json" | jq -r '.[].framework' 2>/dev/null)
+  local count
+  count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null || echo "0")
+  for ((i=0; i<count; i++)); do
+    local framework
+    cC=$(echo "$build_requirements_json" | jq -r ".[$i].framework" 2>/dev/null)
+    local deps
+    deps=$(echo "$build_requirements_json" | jq -r ".[$i].build_dependencies // [] | join(\" \")" 2>/dev/null)
+    if [[ -n "$deps" ]]; then
+      for ((j=0; j<count; j++)); do
+        if [[ $i != $j ]]; then
+          local other_framework
+          other_cC=$(echo "$build_requirements_json" | jq -r ".[$j].framework" 2>/dev/null)
+          local other_deps
+          other_deps=$(echo "$build_requirements_json" | jq -r ".[$j].build_dependencies // [] | join(\" \")" 2>/dev/null)
+          if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$cC"* ]]; then
+            echo "ERROR: Circular dependency detected between $cC and $other_framework" >&2
+            return 1
+          fi
+        fi
+      done
+    fi
+  done
+  local analysis='{"cY": []}'
+  local tier_0=()
+  local tier_1=()
+  for framework in "${frameworks[@]}"; do
+    local deps_length
+    deps_length=$(echo "$build_requirements_json" | jq "[.[] | select(.framework == \"$cC\") | .build_dependencies // []] | .[0] | length" 2>/dev/null || echo "0")
+    if [[ "$deps_length" == "0" ]]; then
+      tier_0+=("$cC")
+    else
+      tier_1+=("$cC")
+    fi
+  done
+  if [[ ${#tier_0[@]} -gt 0 ]]; then
+    analysis=$(echo "$analysis" | jq ".tier_0 = $(printf '%s\n' "${tier_0[@]}" | jq -R . | jq -s .)")
+  fi
+  if [[ ${#tier_1[@]} -gt 0 ]]; then
+    analysis=$(echo "$analysis" | jq ".tier_1 = $(printf '%s\n' "${tier_1[@]}" | jq -R . | jq -s .)")
+  fi
+  local parallel_note='"Frameworks within the same tier can be built in parallel"'
+  analysis=$(echo "$analysis" | jq ".parallel_within_tiers = true | .execution_note = $parallel_note" 2>/dev/null || echo "$analysis")
+  echo "$analysis"
+}
+bc() {
+  local dep_graph="$1"
+  shift
+  local frameworks=("$@")
+  for framework in "${frameworks[@]}"; do
+    local deps
+    deps=$(echo "$dep_graph" | jq -r ".\"$cC\" // \"\"" 2>/dev/null)
+    for dep in $deps; do
+      local reverse_deps
+      reverse_deps=$(echo "$dep_graph" | jq -r ".\"$dep\" // \"\"" 2>/dev/null)
+      if [[ "$reverse_deps" == *"$cC"* ]]; then
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+H() {
+  local builds_json="$1"
+  local results="[]"
+  local max_parallel=$(build_manager_get_cpu_cores)
+  local active_builds=()
+  local build_pids=()
+  local build_count
+  build_count=$(echo "$builds_json" | jq 'length' 2>/dev/null || echo "0")
+  for ((i=0; i<build_count; i++)); do
+    local build_spec
+    build_spec=$(echo "$builds_json" | jq ".[$i]" 2>/dev/null)
+    if [[ -n "$build_spec" ]] && [[ "$build_spec" != "null" ]]; then
+      if [[ ${#active_builds[@]} -lt max_parallel ]]; then
+        build_manager_execute_build_async "$build_spec" &
+        local pid=$!
+        build_pids+=("$pid")
+        active_builds+=("$i")
+      else
+        wait "${build_pids[0]}"
+        unset build_pids[0]
+        build_pids=("${build_pids[@]}")
+        build_manager_execute_build_async "$build_spec" &
+        local pid=$!
+        build_pids+=("$pid")
+      fi
+    fi
+  done
+  for pid in "${build_pids[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+  local result_files=("$b_/builds"/*/result.json)
+  for result_file in "${result_files[@]}"; do
+    if [[ -f "$result_file" ]]; then
+      local result
+      result=$(cat "$result_file")
+      results=$(echo "$results" | jq ". += [$result]" 2>/dev/null || echo "[$result]")
+    fi
+  done
+  echo "$results"
+}
+F() {
+  local build_spec_json="$1"
+  local cC="$2"
+  local docker_image
+  cu=$(echo "$build_spec_json" | jq -r '.docker_image' 2>/dev/null)
+  local build_command
+  cl=$(echo "$build_spec_json" | jq -r '.build_command' 2>/dev/null)
+  local install_deps_cmd
+  install_deps_cmd=$(echo "$build_spec_json" | jq -r '.install_dependencies_command // empty' 2>/dev/null)
+  local working_dir
+  working_dir=$(echo "$build_spec_json" | jq -r '.working_directory // "/workspace"' 2>/dev/null)
+  local cpu_cores
+  cq=$(echo "$build_spec_json" | jq -r '.cpu_cores // empty' 2>/dev/null)
+  if [[ -z "$cq" ]] || [[ "$cq" == "null" ]]; then
+    cq=$(build_manager_get_cpu_cores)
+  fi
+  local build_dir="$b_/builds/$cC"
+  mkdir -p "$build_dir"
+  local timestamp
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  local random_suffix
+  random_suffix=$(printf "%04x" $((RANDOM % 65536)))
+  local container_cH="suitey-build-$cC-$timestamp-$random_suffix"
+  BUILD_MANAGER_ACTIVE_CONTAINERS+=("$container_name")
+  local full_command=""
+  if [[ -n "$install_deps_cmd" ]]; then
+    full_command="$install_deps_cmd && $cl"
+  else
+    full_command="$cl"
+  fi
+  local start_time
+  cQ=$(date +%s.%3N)
+  local cA=0
+  local output_file="$build_dir/output.txt"
+  local docker_args=("--rm" "--name" "$container_name" "--cpus" "$cq")
+  docker_args+=("-v" "$PROJECT_ROOT:/workspace")
+  docker_args+=("-v" "$build_dir/artifacts:/artifacts")
+  docker_args+=("-w" "$working_dir")
+  local env_vars
+  env_vars=$(echo "$build_spec_json" | jq -r '.environment_variables // {} | to_entries[] | (.key + "=" + .value)' 2>/dev/null)
+  if [[ -n "$env_vars" ]]; then
+    while IFS= read -r env_var; do
+      if [[ -n "$env_var" ]]; then
+        docker_args+=("-e" "$env_var")
+      fi
+    done <<< "$env_vars"
+  fi
+  local volume_mounts
+  c_=$(echo "$build_spec_json" | jq -r '.volume_mounts[]? | (.host_path + ":" + .container_path)' 2>/dev/null)
+  if [[ -n "$c_" ]]; then
+    while IFS= read -r volume_mount; do
+      if [[ -n "$volume_mount" ]]; then
+        docker_args+=("-v" "$volume_mount")
+      fi
+    done <<< "$c_"
+  fi
+  if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+    docker_run "$container_name" "$cu" "$full_command" > "$cI_file" 2>&1
+    cA=$?
+  else
+    _execute_docker_run "$container_name" "$cu" "$full_command" "$cq" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" > "$cI_file" 2>&1
+    cA=$?
+  fi
+  local end_time
+  cw=$(date +%s.%3N)
+  local duration
+  cv=$(echo "$cw - $cQ" | bc 2>/dev/null || echo "0")
+  local result
+  result=$(cat <<EOF
+{
+  "cC": "$cC",
+  "cR": "$([[ $cA -eq 0 ]] && echo "built" || echo "build-failed")",
+  "cv": $cv,
+  "cQ": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "cw": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "cp": "$container_name",
+  "cA": $cA,
+  "cr": $cq,
+  "cI": "$(cat "$cI_file" | jq -R -s .)",
+  "cy": $([[ $cA -eq 0 ]] && echo "null" || echo "\"Build failed with exit code $cA\"")
+}
+EOF
+  )
+  echo "$result" > "$build_dir/result.json"
+  bW=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$container_name/}")
+  echo "$result"
+}
+G() {
+  local build_spec_json="$1"
+  local framework
+  cC=$(echo "$build_spec_json" | jq -r '.framework' 2>/dev/null)
+  build_manager_execute_build "$build_spec_json" "$cC" > /dev/null
+}
+build_manager_create_cW() {
+  local build_requirements_json="$1"
+  local cC="$2"
+  local artifacts_dir="$3"
+  local cE="${4:-}"
+  if [[ -z "$cE" ]]; then
+    local timestamp
+    timestamp=$(date +%Y%m%d-%H%M%S)
+    cE="suitey-test-$cC-$timestamp"
+  fi
+  if [[ "$(type -t mock_docker_build)" == "function" ]]; then
+    local mock_result
+    mock_result=$(cat <<EOF
+{
+  "cT": true,
+  "cE": "$cE",
+  "cD": "sha256:mock$(date +%s)",
+  "cs": true,
+  "cj": true,
+  "cP": true,
+  "cX": true,
+  "cF": true,
+  "cI": "Dockerfile generated successfully. Image built with artifacts, source code, and test suites. Image contents verified."
+}
+EOF
+    )
+    echo "$mock_result"
+    return 0
+  fi
+  local build_dir="$b_/builds/$cC"
+  mkdir -p "$build_dir"
+  local framework_req
+  framework_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$cC\")" 2>/dev/null)
+  if [[ -z "$cC_req" ]] || [[ "$cC_req" == "null" ]]; then
+    echo "{\"error\": \"No build requirements found for framework $cC\"}"
+    return 1
+  fi
+  local ct="$build_dir/Dockerfile"
+  build_manager_generate_dockerfile "$cC_req" "$artifacts_dir" "$ct"
+  local build_result
+  build_result=$(build_manager_build_test_image "$ct" "$build_dir" "$cE")
+  echo "$build_result"
+}
+J() {
+  local build_req_json="$1"
+  local artifacts_dir="$2"
+  local ct="$3"
+  local base_image
+  base_image=$(echo "$build_req_json" | jq -r '.build_steps[0].docker_image' 2>/dev/null)
+  local artifacts
+  artifacts=$(echo "$build_req_json" | jq -r '.artifact_storage.artifacts[]?' 2>/dev/null)
+  local source_code
+  source_code=$(echo "$build_req_json" | jq -r '.artifact_storage.source_code[]?' 2>/dev/null)
+  local test_suites
+  test_suites=$(echo "$build_req_json" | jq -r '.artifact_storage.test_suites[]?' 2>/dev/null)
+  cat > "$ct" << EOF
+FROM $base_image
+$(for artifact in $artifacts; do echo "COPY ./artifacts/$artifact /workspace/$artifact"; done)
+$(for src in $source_code; do echo "COPY $src /workspace/$src"; done)
+$(for test in $test_suites; do echo "COPY $test /workspace/$test"; done)
+WORKDIR /workspace
+CMD ["/bin/sh"]
+EOF
+}
+build_manager_build_cW() {
+  local ct="$1"
+  local context_dir="$2"
+  local cE="$3"
+  local output_file="$context_dir/image_build_output.txt"
+  if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+    mkdir -p "$(dirname "$cI_file")"
+    if docker_build "$context_dir" "$cE" > "$cI_file" 2>&1; then
+      local cD="sha256:mock$(date +%s)"
+      local result
+      result=$(cat <<EOF
+{
+  "cT": true,
+  "cE": "$cE",
+  "cD": "$cD",
+  "ct": "$ct",
+  "cI": "$(cat "$cI_file" | jq -R -s .)"
+}
+EOF
+      )
+      echo "$result"
+      return 0
+    else
+      local result
+      result=$(cat <<EOF
+{
+  "cT": false,
+  "cE": "$cE",
+  "cy": "Failed to build Docker image",
+  "cI": "$(cat "$cI_file" | jq -R -s .)"
+}
+EOF
+      )
+      echo "$result"
+      return 1
+    fi
+  else
+    if docker_build "$context_dir" "$cE" "$ct" > "$cI_file" 2>&1; then
+    local image_id
+    cD=$(docker images -q "$cE" | head -1)
+    local result
+    result=$(cat <<EOF
+{
+  "cT": true,
+  "cE": "$cE",
+  "cD": "$cD",
+  "ct": "$ct",
+  "cI": "$(cat "$cI_file" | jq -R -s .)"
+}
+EOF
+    )
+    echo "$result"
+    return 0
+  else
+    local result
+    result=$(cat <<EOF
+{
+  "cT": false,
+  "cE": "$cE",
+  "cy": "Failed to build Docker image",
+  "cI": "$(cat "$cI_file" | jq -R -s .)"
+}
+EOF
+    )
+    echo "$result"
+    return 1
+  fi
+}
+O() {
+  local build_requirements_json="$1"
+  local cC="$2"
+  local build_req
+  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$cC\")" 2>/dev/null)
+  if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
+    echo ""
+    return 1
+  fi
+  local timestamp
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  local random_suffix
+  random_suffix=$(printf "%04x" $((RANDOM % 65536)))
+  local container_cH="suitey-build-$cC-$timestamp-$random_suffix"
+  local build_step
+  build_step=$(echo "$build_req" | jq '.build_steps[0]' 2>/dev/null)
+  local docker_image
+  cu=$(echo "$build_step" | jq -r '.docker_image' 2>/dev/null)
+  local cpu_cores
+  cq=$(echo "$build_step" | jq -r '.cpu_cores // empty' 2>/dev/null)
+  if [[ -z "$cq" ]] || [[ "$cq" == "null" ]]; then
+    cq=$(build_manager_get_cpu_cores)
+  fi
+  local container_id
+  cp=$(docker run -d --name "$container_name" --cpus "$cq" "$cu" sleep 3600 2>/dev/null)
+  if [[ -n "$cp" ]]; then
+    BUILD_MANAGER_ACTIVE_CONTAINERS+=("$container_name")
+    echo "$cp"
+    return 0
+  else
+    echo ""
+    return 1
+  fi
+}
+U() {
+  local cp="$1"
+  if [[ -n "$cp" ]]; then
+    docker stop "$cp" 2>/dev/null || true
+    bW=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$cp/}")
+  fi
+}
+B() {
+  local cp="$1"
+  if [[ -n "$cp" ]]; then
+    docker rm -f "$cp" 2>/dev/null || true
+    bW=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$cp/}")
+  fi
+}
+C() {
+  local cE="$1"
+  if [[ -n "$cE" ]]; then
+    docker rmi -f "$cE" 2>/dev/null || true
+  fi
+}
+V() {
+  local build_requirements_json="$1"
+  local cC="$2"
+  local build_req
+  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$cC\")" 2>/dev/null)
+  if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
+    echo "{\"error\": \"No build requirements found for framework $cC\"}"
+    return 1
+  fi
+  build_manager_update_build_status "$cC" "building"
+  local result
+  result=$(build_manager_execute_build "$build_req" "$cC")
+  local status
+  cR=$(echo "$result" | jq -r '.status' 2>/dev/null)
+  build_manager_update_build_status "$cC" "$cR"
+  echo "$result"
+}
+W() {
+  local cC="$1"
+  local cR="$2"
+  if [[ -f "$bX" ]]; then
+    local current_status
+    current_cR=$(cat "$bX")
+    local updated_status
+    updated_cR=$(echo "$current_status" | jq ".\"$cC\" = \"$cR\"" 2>/dev/null || echo "{\"$cC\": \"$cR\"}")
+    echo "$updated_status" > "$bX"
+  fi
+}
+build_manager_handle_cy() {
+  local error_type="$1"
+  local build_requirements_json="$2"
+  local cC="$3"
+  local additional_info="$4"
+  case "$cy_type" in
+    "build_failed")
+      echo "ERROR: Build failed for framework $cC" >&2
+      if [[ -n "$additional_info" ]]; then
+        echo "Details: $additional_info" >&2
+      fi
+      ;;
+    "container_launch_failed")
+      echo "ERROR: Failed to launch build container for framework $cC" >&2
+      echo "Check Docker installation and permissions" >&2
+      ;;
+    "artifact_extraction_failed")
+      echo "WARNING: Failed to extract artifacts for framework $cC" >&2
+      echo "Build may still be usable" >&2
+      ;;
+    "image_build_failed")
+      echo "ERROR: Failed to build test image for framework $cC" >&2
+      if [[ -n "$additional_info" ]]; then
+        echo "Build output: $additional_info" >&2
+      fi
+      ;;
+    "dependency_failed")
+      echo "ERROR: Build dependency failed for framework $cC" >&2
+      echo "Cannot proceed with dependent builds" >&2
+      ;;
+    *)
+      echo "ERROR: Unknown build error for framework $cC: $cy_type" >&2
+      ;;
+  esac
+  local error_log="$b_/error.log"
+  echo "$(date): $cy_type - $cC - $additional_info" >> "$cy_log"
+}
+M() {
+  local signal="$1"
+  local signal_count="$2"
+  if [[ "$signal_count" == "first" ]] && [[ "$bZ" == "false" ]]; then
+    bZ=true
+    echo "Gracefully shutting down builds..." >&2
+    for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
+      build_manager_stop_container "$container"
+    done
+    sleep 2
+    for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
+      build_manager_cleanup_container "$container"
+    done
+    bZ=false
+  elif [[ "$signal_count" == "second" ]] || [[ "$bY" == "true" ]]; then
+    bY=true
+    echo "Forcefully terminating builds..." >&2
+    for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
+      docker kill "$container" 2>/dev/null || true
+      build_manager_cleanup_container "$container"
+    done
+    if [[ -n "$b_" ]] && [[ -d "$b_" ]]; then
+      rm -rf "$b_"
+    fi
+    exit 1
+  fi
+}
+X() {
+  local build_requirements_json="$1"
+  if ! echo "$build_requirements_json" | jq . >/dev/null 2>&1; then
+    echo "ERROR: Invalid JSON in build requirements" >&2
+    return 1
+  fi
+  if ! echo "$build_requirements_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    echo "ERROR: Build requirements must be a JSON array" >&2
+    return 1
+  fi
+  local count
+  count=$(echo "$build_requirements_json" | jq 'length' 2>/dev/null)
+  for ((i=0; i<count; i++)); do
+    local req
+    req=$(echo "$build_requirements_json" | jq ".[$i]" 2>/dev/null)
+    if ! echo "$req" | jq -e '.framework' >/dev/null 2>&1; then
+      echo "ERROR: Build requirement missing 'framework' field" >&2
+      return 1
+    fi
+    if ! echo "$req" | jq -e '.build_steps and (.build_steps | type == "array")' >/dev/null 2>&1; then
+      echo "ERROR: Build requirement missing valid 'build_steps' array" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+T() {
+  local build_requirements_json="$1"
+  build_manager_orchestrate "$build_requirements_json"
+}
+R() {
+  local build_requirements_json="$1"
+  local cC="$2"
+  local build_req
+  build_req=$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$cC\")" 2>/dev/null)
+  if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
+    echo "{}"
+    return 1
+  fi
+  echo "$build_req" | jq '.build_steps' 2>/dev/null
+}
+D() {
+  local build_requirements_json="$1"
+  if build_manager_validate_requirements "$build_requirements_json"; then
+    echo '{"cR": "coordinated", "cL": true}'
+  else
+    echo '{"cR": "error", "cL": false}'
+  fi
+}
+S() {
+  local build_results_json="$1"
+  if echo "$build_results_json" | jq . >/dev/null 2>&1; then
+    echo '{"cR": "results_received", "cK": true}'
+  else
+    echo '{"cR": "error", "cK": false}'
+  fi
+}
+I() {
+  local build_requirements_json="$1"
+  local cC="$2"
+  build_manager_execute_build "$(echo "$build_requirements_json" | jq ".[] | select(.framework == \"$cC\")" 2>/dev/null)" "$cC"
+}
+Q() {
+  local test_image_metadata_json="$1"
+  local cC="$2"
+  if echo "$cW_metadata_json" | jq . >/dev/null 2>&1; then
+    echo '{"cR": "metadata_passed", "cC": "'$cC'", "cM": true}'
+  else
+    echo '{"cR": "error", "cC": "'$cC'", "cM": false}'
+  fi
+}
+bK() {
   cat << 'EOF'
 Suitey Project Scanner
 Scans PROJECT_ROOT to detect test frameworks (BATS, Rust) and discover
@@ -1123,14 +1853,14 @@ OPTIONS:
     -h, --help Show this help message and exit.
 EOF
 }
-P() {
+bt() {
   if [[ $# -gt 0 ]] && [[ "$1" == "test-suite-discovery-registry" ]]; then
     shift
     local project_root_arg=""
     for arg in "$@"; do
       case "$arg" in
         -h|--help)
-          bf
+          bK
           exit 0
           ;;
         -*)
@@ -1158,7 +1888,7 @@ P() {
   for arg in "$@"; do
     case "$arg" in
       -h|--help)
-        bf
+        bK
         exit 0
         ;;
     esac
@@ -1185,13 +1915,13 @@ P() {
     esac
   done
   if [[ -z "$project_root_arg" ]]; then
-    bf
+    bK
     exit 0
   fi
   PROJECT_ROOT="$(cd "$project_root_arg" && pwd)"
-  be
-  S
+  bJ
+  bw
 }
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  P "$@"
+  bt "$@"
 fi

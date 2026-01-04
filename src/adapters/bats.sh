@@ -241,17 +241,19 @@ bats_adapter_get_build_steps() {
 # BATS adapter execute test suite method
 bats_adapter_execute_test_suite() {
   local test_suite="$1"
-  local build_artifacts="$2"
+  local test_image="$2"
   local execution_config="$3"
 
   # Mock execution for adapter interface
+  # BATS doesn't require building, so test_image may be null/empty
   cat << EXEC_EOF
 {
   "exit_code": 0,
   "duration": 1.0,
   "output": "Mock BATS execution output",
   "container_id": null,
-  "execution_method": "native"
+  "execution_method": "native",
+  "test_image": "${test_image:-}"
 }
 EXEC_EOF
 }

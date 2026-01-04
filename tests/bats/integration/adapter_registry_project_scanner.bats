@@ -5,6 +5,28 @@ load ../helpers/project_scanner
 load ../helpers/fixtures
 load ../helpers/framework_detector
 
+# Source suitey.sh to get all functions
+# Try multiple possible locations using BATS_TEST_DIRNAME
+if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../suitey.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../../../suitey.sh" ]]; then
+  source "$BATS_TEST_DIRNAME/../../../../suitey.sh"
+else
+  # Fallback: try to find it from the workspace root
+  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  if [[ -f "$suitey_script" ]]; then
+    source "$suitey_script"
+  else
+    echo "ERROR: Could not find suitey.sh" >&2
+    exit 1
+  fi
+fi
+
+# Enable integration test mode for real Docker operations
+export SUITEY_INTEGRATION_TEST=1
+
 # ============================================================================
 # Project Scanner - Adapter Registry Orchestration Tests
 # ============================================================================
@@ -1054,4 +1076,239 @@ assert_unified_results_from_components() {
   done
 
   return 0
+}
+
+# ============================================================================
+# Build Manager Interface Integration Tests
+# ============================================================================
+
+@test "Adapter Registry calls get_build_steps with correct interface" {
+  setup_adapter_registry_test
+
+  # Initialize registry with built-in adapters
+  run_adapter_registry_initialize
+
+  # Create a mock adapter that requires building
+  create_valid_mock_adapter "build_adapter"
+  run_adapter_registry_register "build_adapter"
+  assert_success
+
+  # Call get_build_steps through registry
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  source "$suitey_script"
+
+  # Create temporary project
+  local temp_project=$(mktemp -d)
+  local build_requirements='{"requires_build": true, "build_steps": ["compile"], "build_commands": ["echo build"], "build_dependencies": [], "build_artifacts": ["target/"]}'
+  
+  # Call get_build_steps
+  local build_steps
+  build_steps=$(build_adapter_adapter_get_build_steps "$temp_project" "$build_requirements")
+  
+  # Should contain new interface fields
+  assert_build_steps_has_install_dependencies "$build_steps"
+  assert_build_steps_has_cpu_cores "$build_steps"
+  
+  rm -rf "$temp_project"
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry handles new get_build_steps fields correctly" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter with build requirements
+  create_valid_mock_adapter "build_test_adapter"
+  run_adapter_registry_register "build_test_adapter"
+  assert_success
+  
+  # Call get_build_steps
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  
+  source "$suitey_script"
+  
+  local temp_project=$(mktemp -d)
+  local build_requirements='{"requires_build": true}'
+  
+  local build_steps
+  build_steps=$(build_test_adapter_adapter_get_build_steps "$temp_project" "$build_requirements")
+  
+  # Should be valid JSON with all required fields
+  assert_build_steps_valid_json "$build_steps"
+  
+  rm -rf "$temp_project"
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry passes test_image to execute_test_suite" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter
+  create_valid_mock_adapter "image_test_adapter"
+  run_adapter_registry_register "image_test_adapter"
+  assert_success
+  
+  # Call execute_test_suite with test_image
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  
+  source "$suitey_script"
+  
+  local test_suite='{"name": "test_suite", "framework": "image_test_adapter", "test_files": ["test.txt"], "metadata": {}, "execution_config": {}}'
+  local test_image="test_image:latest"
+  local execution_config='{"timeout": 30}'
+  
+  local result
+  result=$(image_test_adapter_adapter_execute_test_suite "$test_suite" "$test_image" "$execution_config")
+  
+  # Should contain test_image in result
+  assert_execution_result_has_test_image "$result"
+  
+  # Should NOT contain build_artifacts
+  assert_execution_result_no_build_artifacts "$result"
+  
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry handles test_image parameter for no-build frameworks" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter (no build required)
+  create_valid_mock_adapter "no_build_adapter"
+  run_adapter_registry_register "no_build_adapter"
+  assert_success
+  
+  # Call execute_test_suite with empty test_image
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  
+  source "$suitey_script"
+  
+  local test_suite='{"name": "test_suite", "framework": "no_build_adapter", "test_files": ["test.txt"], "metadata": {}, "execution_config": {}}'
+  local test_image=""  # Empty for no-build frameworks
+  local execution_config='{"timeout": 30}'
+  
+  local result
+  result=$(no_build_adapter_adapter_execute_test_suite "$test_suite" "$test_image" "$execution_config")
+  
+  # Should handle empty test_image gracefully
+  assert_execution_succeeded "$result"
+  assert_execution_result_has_test_image "$result"
+  
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner handles build requirements with new interface" {
+  setup_adapter_registry_test
+  setup_test_project
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a project that requires building
+  create_rust_project "$TEST_PROJECT_DIR"
+  
+  # Run Project Scanner (should handle build requirements)
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+  
+  # Should handle build requirements without errors
+  assert_project_scanner_handles_build_requirements "$output"
+  
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner passes test_image to adapters" {
+  setup_adapter_registry_test
+  setup_test_project
+
+  # Initialize registry
+  run_adapter_registry_initialize
+
+  # Create a project with test suites
+  create_bats_project "$TEST_PROJECT_DIR"
+
+  # Run Project Scanner (should pass test_image to adapters)
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+
+  # Should pass test_image parameter correctly
+  assert_project_scanner_passes_test_image "$output"
+
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner integrates build steps with new interface" {
+  setup_adapter_registry_test
+  setup_test_project
+
+  # Initialize registry
+  run_adapter_registry_initialize
+
+  # Create a project requiring building
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  # Run Project Scanner
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+
+  # Should integrate build steps with new interface
+  assert_project_scanner_integrates_build_steps "$output"
+
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner validates adapter interface compatibility" {
+  setup_adapter_registry_test
+  setup_test_project
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create project with mixed frameworks
+  create_mixed_project "$TEST_PROJECT_DIR"
+  
+  # Run Project Scanner
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+  
+  # Should validate all adapter interfaces are compatible
+  assert_project_scanner_validates_interfaces "$output"
+  
+  teardown_test_project
+  teardown_adapter_registry_test
 }
