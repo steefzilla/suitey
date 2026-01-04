@@ -634,7 +634,7 @@ assert_discovery_failure_handled() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -E -q "discovery.*failed.*$adapter_identifier|${adapter_identifier}.*discovery.*failed"; then
+  if ! echo "$output" | grep -E -q "(discovery.*failed|failed discovery).*$adapter_identifier|${adapter_identifier}.*(discovery.*failed|failed discovery)"; then
     echo "ERROR: Expected discovery failure of adapter '$adapter_identifier' to be handled gracefully"
     echo "Output was: $output"
     return 1

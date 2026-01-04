@@ -282,6 +282,759 @@ load ../helpers/fixtures
 }
 
 # ============================================================================
+# Base64 Encoding/Decoding Tests
+# ============================================================================
+
+@test "base64 encoding and decoding preserves adapter metadata values" {
+  setup_adapter_registry_test
+
+  # Create a valid mock adapter with complex JSON metadata
+  create_valid_mock_adapter "test_adapter"
+
+  # Register the adapter
+  run_adapter_registry_register "test_adapter"
+  assert_success
+
+  # Get the adapter metadata
+  output=$(run_adapter_registry_get "test_adapter")
+  assert_adapter_found "$output" "test_adapter"
+
+  # Save state (encodes to base64)
+  source "$(find "$BATS_TEST_DIRNAME" -name "suitey.sh" | head -1)"
+  adapter_registry_save_state
+
+  # Clear in-memory state
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_CAPABILITIES=()
+  ADAPTER_REGISTRY_ORDER=()
+
+  # Load state (decodes from base64)
+  adapter_registry_load_state
+
+  # Get the adapter metadata again after save/load cycle
+  output_after=$(run_adapter_registry_get "test_adapter")
+  assert_adapter_found "$output_after" "test_adapter"
+
+  # Verify the metadata is identical (no data loss through encoding/decoding)
+  if [[ "$output" != "$output_after" ]]; then
+    echo "ERROR: Metadata changed after base64 encode/decode cycle"
+    echo "Original: $output"
+    echo "After: $output_after"
+    return 1
+  fi
+
+  # Verify specific fields are preserved
+  if ! echo "$output_after" | grep -q '"name".*"Test Adapter"'; then
+    echo "ERROR: 'name' field not preserved correctly"
+    return 1
+  fi
+
+  if ! echo "$output_after" | grep -q '"identifier".*"test_adapter"'; then
+    echo "ERROR: 'identifier' field not preserved correctly"
+    return 1
+  fi
+
+  if ! echo "$output_after" | grep -q '"capabilities"'; then
+    echo "ERROR: 'capabilities' field not preserved correctly"
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "base64 encoding handles special characters in JSON metadata" {
+  setup_adapter_registry_test
+
+  # Create adapter with metadata containing special characters
+  local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/special_adapter"
+  mkdir -p "$adapter_dir"
+
+  cat > "$adapter_dir/adapter.sh" << 'EOF'
+#!/usr/bin/env bash
+
+special_adapter_adapter_detect() {
+  return 0
+}
+
+special_adapter_adapter_get_metadata() {
+  # JSON with special characters: quotes, newlines, equals signs, etc.
+  echo '{"name": "Test \"Adapter\"", "description": "Has = signs and\nnewlines", "version": "1.0.0", "supported_languages": ["test"], "capabilities": ["test"], "required_binaries": [], "configuration_files": [], "test_file_patterns": ["test_*"], "test_directory_patterns": ["tests/"]}'
+}
+
+special_adapter_adapter_check_binaries() {
+  return 0
+}
+
+special_adapter_adapter_discover_test_suites() {
+  echo '[]'
+}
+
+special_adapter_adapter_detect_build_requirements() {
+  echo '{"requires_build": false, "build_steps": [], "build_commands": [], "build_dependencies": [], "build_artifacts": []}'
+}
+
+special_adapter_adapter_get_build_steps() {
+  echo '[]'
+}
+
+special_adapter_adapter_execute_test_suite() {
+  echo '{"exit_code": 0, "duration": 1.0, "output": "test", "container_id": null, "execution_method": "mock"}'
+}
+
+special_adapter_adapter_parse_test_results() {
+  echo '{"total_tests": 0, "passed_tests": 0, "failed_tests": 0, "skipped_tests": 0, "test_details": [], "status": "passed"}'
+}
+EOF
+
+  chmod +x "$adapter_dir/adapter.sh"
+  source "$adapter_dir/adapter.sh"
+
+  # Register the adapter
+  run_adapter_registry_register "special_adapter"
+  assert_success
+
+  # Get original metadata
+  output=$(run_adapter_registry_get "special_adapter")
+  assert_adapter_found "$output" "special_adapter"
+
+  # Save and reload
+  source "$(find "$BATS_TEST_DIRNAME" -name "suitey.sh" | head -1)"
+  adapter_registry_save_state
+  ADAPTER_REGISTRY=()
+  adapter_registry_load_state
+
+  # Get metadata after save/load
+  output_after=$(run_adapter_registry_get "special_adapter")
+  assert_adapter_found "$output_after" "special_adapter"
+
+  # Verify special characters are preserved
+  if ! echo "$output_after" | grep -q 'Test "Adapter"'; then
+    echo "ERROR: Quotes in metadata not preserved"
+    return 1
+  fi
+
+  if ! echo "$output_after" | grep -q 'Has = signs'; then
+    echo "ERROR: Equals signs in metadata not preserved"
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
+# Diagnostic Tests - Registry File Persistence
+# ============================================================================
+
+@test "registry file is created after adapter registration" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "file_test_adapter"
+  run_adapter_registry_register "file_test_adapter"
+  assert_success
+
+  # Verify registry file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  if [[ ! -f "$registry_file" ]]; then
+    echo "ERROR: Registry file was not created: $registry_file" >&2
+    echo "TEST_ADAPTER_REGISTRY_DIR: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    ls -la "$TEST_ADAPTER_REGISTRY_DIR" >&2 || echo "Directory does not exist" >&2
+    return 1
+  fi
+
+  # Verify file is not empty
+  if [[ ! -s "$registry_file" ]]; then
+    echo "ERROR: Registry file is empty" >&2
+    return 1
+  fi
+
+  # Verify file contains the adapter
+  if ! grep -q "file_test_adapter=" "$registry_file"; then
+    echo "ERROR: Registry file does not contain adapter entry" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "registry file contains valid base64 encoded data" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "base64_test_adapter"
+  run_adapter_registry_register "base64_test_adapter"
+  assert_success
+
+  # Get the registry file
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  
+  # Extract the encoded value
+  local encoded_value
+  encoded_value=$(grep "^base64_test_adapter=" "$registry_file" | cut -d= -f2-)
+
+  if [[ -z "$encoded_value" ]]; then
+    echo "ERROR: Could not extract encoded value from registry file" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  # Verify it's valid base64 by attempting to decode
+  local decoded_value
+  if ! decoded_value=$(echo -n "$encoded_value" | base64 -d 2>&1); then
+    echo "ERROR: Encoded value is not valid base64" >&2
+    echo "Encoded value: $encoded_value" >&2
+    return 1
+  fi
+
+  # Verify decoded value is valid JSON
+  if ! echo "$decoded_value" | grep -q '"name"'; then
+    echo "ERROR: Decoded value is not valid JSON metadata" >&2
+    echo "Decoded value: $decoded_value" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state finds and loads registry file from TEST_ADAPTER_REGISTRY_DIR" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "load_test_adapter"
+  run_adapter_registry_register "load_test_adapter"
+  assert_success
+
+  # Verify file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Source suitey.sh fresh (simulating run_adapter_registry_get)
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # Source fresh (arrays will be reset)
+  source "$suitey_script"
+
+  # Verify arrays are empty after sourcing (check if variable exists first due to set -u)
+  if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing suitey.sh" >&2
+    return 1
+  fi
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Verify adapter was loaded
+  if [[ ! -v ADAPTER_REGISTRY["load_test_adapter"] ]]; then
+    echo "ERROR: Adapter was not loaded from file" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2 || echo "Could not read file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "save_state and load_state use consistent file paths" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "path_test_adapter"
+  
+  # Source suitey.sh
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  source "$suitey_script"
+
+  # Register adapter (this will save state)
+  create_valid_mock_adapter "path_test_adapter"
+  adapter_registry_register "path_test_adapter"
+
+  # Get the file path used by save_state
+  local saved_file="${ADAPTER_REGISTRY_FILE:-}"
+  
+  # Clear arrays and reload
+  ADAPTER_REGISTRY=()
+  adapter_registry_load_state
+
+  # Get the file path used by load_state
+  local loaded_file="${ADAPTER_REGISTRY_FILE:-}"
+
+  # Verify paths match
+  if [[ "$saved_file" != "$loaded_file" ]]; then
+    echo "ERROR: Save and load use different file paths" >&2
+    echo "Save path: $saved_file" >&2
+    echo "Load path: $loaded_file" >&2
+    echo "TEST_ADAPTER_REGISTRY_DIR: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify the file exists at that path
+  if [[ ! -f "$saved_file" ]]; then
+    echo "ERROR: Registry file does not exist at saved path: $saved_file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state should_reload logic triggers when file exists" {
+  setup_adapter_registry_test
+
+  # Create registry file manually with test data
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local test_json='{"name": "Test", "identifier": "manual_test"}'
+  local encoded_value
+  encoded_value=$(echo -n "$test_json" | base64 -w 0 2>/dev/null || echo -n "$test_json" | base64 -b 0 2>/dev/null || echo -n "$test_json" | base64 | tr -d '\n')
+  
+  echo "manual_test=$encoded_value" > "$registry_file"
+
+  # Source suitey.sh fresh
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  source "$suitey_script"
+
+  # Verify arrays are empty (check if variable exists first due to set -u)
+  if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing suitey.sh" >&2
+    return 1
+  fi
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Verify adapter was loaded
+  if [[ ! -v ADAPTER_REGISTRY["manual_test"] ]]; then
+    echo "ERROR: Adapter was not loaded from manually created file" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  # Verify the loaded value matches
+  if [[ "${ADAPTER_REGISTRY[manual_test]}" != "$test_json" ]]; then
+    echo "ERROR: Loaded value does not match expected" >&2
+    echo "Expected: $test_json" >&2
+    echo "Got: ${ADAPTER_REGISTRY[manual_test]}" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_get works after fresh source and load_state" {
+  setup_adapter_registry_test
+
+  # Register an adapter using the helper (which sources suitey.sh)
+  create_valid_mock_adapter "get_test_adapter"
+  run_adapter_registry_register "get_test_adapter"
+  assert_success
+
+  # Verify file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Now simulate what run_adapter_registry_get does: source fresh and call get
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # Source fresh (this resets arrays)
+  source "$suitey_script"
+
+  # Call get (which should call load_state internally)
+  local output
+  output=$(adapter_registry_get "get_test_adapter")
+
+  # Verify we got the adapter (not null)
+  if [[ "$output" == "null" ]] || [[ -z "$output" ]]; then
+    echo "ERROR: adapter_registry_get returned null or empty" >&2
+    echo "Output: $output" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+    if [[ -f "$registry_file" ]]; then
+      echo "File contents:" >&2
+      cat "$registry_file" >&2
+    fi
+    return 1
+  fi
+
+  # Verify it's valid JSON
+  if ! echo "$output" | grep -q '"name"'; then
+    echo "ERROR: Returned value is not valid JSON metadata" >&2
+    echo "Output: $output" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "diagnostic: verify TEST_ADAPTER_REGISTRY_DIR is set and accessible" {
+  setup_adapter_registry_test
+
+  # Verify TEST_ADAPTER_REGISTRY_DIR is set
+  if [[ -z "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not set" >&2
+    return 1
+  fi
+
+  # Verify it's a directory
+  if [[ ! -d "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not a directory: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify it's writable
+  if [[ ! -w "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not writable: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify we can create files in it
+  local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_write"
+  if ! touch "$test_file" 2>&1; then
+    echo "ERROR: Cannot create files in TEST_ADAPTER_REGISTRY_DIR" >&2
+    echo "Directory: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+  rm -f "$test_file"
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
+# Debugging Tests - Investigating Remaining Failures
+# ============================================================================
+
+@test "debug: exact sequence from failing get_adapter test" {
+  setup_adapter_registry_test
+
+  # Exact sequence from the failing test
+  create_valid_mock_adapter "test_adapter"
+  
+  # Step 1: Register using helper (sources suitey.sh)
+  run_adapter_registry_register "test_adapter"
+  assert_success
+
+  # Verify file was created
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+  
+  # Capture what was written
+  local file_contents
+  file_contents=$(cat "$registry_file")
+  echo "File contents after register: $file_contents" >&2
+
+  # Step 2: Get using helper (sources suitey.sh again)
+  local output
+  output=$(run_adapter_registry_get "test_adapter" 2>&1)
+  local exit_code=$?
+  
+  # Debug output
+  echo "Get output: $output" >&2
+  echo "Exit code: $exit_code" >&2
+  
+  # Check if file still exists
+  echo "File exists after get: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+  if [[ -f "$registry_file" ]]; then
+    echo "File contents after get: $(cat "$registry_file")" >&2
+  fi
+
+  # This should pass but currently fails - let's see why
+  if [[ "$output" == "null" ]] || [[ -z "$output" ]]; then
+    echo "ERROR: Get returned null/empty" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "debug: global variables after sourcing suitey.sh multiple times" {
+  setup_adapter_registry_test
+
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+
+  # First source (simulating run_adapter_registry_register)
+  source "$suitey_script"
+  local first_registry_file="${ADAPTER_REGISTRY_FILE:-}"
+  local first_base_dir="${REGISTRY_BASE_DIR:-}"
+  
+  echo "After first source:" >&2
+  echo "  ADAPTER_REGISTRY_FILE: $first_registry_file" >&2
+  echo "  REGISTRY_BASE_DIR: $first_base_dir" >&2
+  echo "  TEST_ADAPTER_REGISTRY_DIR: ${TEST_ADAPTER_REGISTRY_DIR:-not set}" >&2
+
+  # Register an adapter
+  create_valid_mock_adapter "debug_adapter"
+  adapter_registry_register "debug_adapter"
+  
+  # Verify file was created at expected location
+  if [[ ! -f "$first_registry_file" ]]; then
+    echo "ERROR: File not created at expected location: $first_registry_file" >&2
+    ls -la "$(dirname "$first_registry_file")" >&2 || echo "Directory does not exist" >&2
+    return 1
+  fi
+
+  # Second source (simulating run_adapter_registry_get)
+  source "$suitey_script"
+  local second_registry_file="${ADAPTER_REGISTRY_FILE:-}"
+  local second_base_dir="${REGISTRY_BASE_DIR:-}"
+  
+  echo "After second source:" >&2
+  echo "  ADAPTER_REGISTRY_FILE: $second_registry_file" >&2
+  echo "  REGISTRY_BASE_DIR: $second_base_dir" >&2
+  echo "  TEST_ADAPTER_REGISTRY_DIR: ${TEST_ADAPTER_REGISTRY_DIR:-not set}" >&2
+
+  # Verify paths match
+  if [[ "$first_registry_file" != "$second_registry_file" ]]; then
+    echo "ERROR: File paths changed between sources" >&2
+    echo "  First: $first_registry_file" >&2
+    echo "  Second: $second_registry_file" >&2
+    return 1
+  fi
+
+  # Verify file still exists
+  if [[ ! -f "$second_registry_file" ]]; then
+    echo "ERROR: File disappeared after second source: $second_registry_file" >&2
+    return 1
+  fi
+
+  # Now try to load
+  adapter_registry_load_state
+  
+  # Check what load_state thinks the file path is
+  local loaded_registry_file="${ADAPTER_REGISTRY_FILE:-}"
+  echo "After load_state:" >&2
+  echo "  ADAPTER_REGISTRY_FILE: $loaded_registry_file" >&2
+  
+  # Verify adapter was loaded
+  if [[ ! -v ADAPTER_REGISTRY["debug_adapter"] ]]; then
+    echo "ERROR: Adapter not loaded" >&2
+    echo "  Expected file: $second_registry_file" >&2
+    echo "  Loaded file: $loaded_registry_file" >&2
+    echo "  File exists: $([[ -f "$second_registry_file" ]] && echo yes || echo no)" >&2
+    echo "  ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "debug: load_state should_reload detection with existing file" {
+  setup_adapter_registry_test
+
+  # Create file manually first
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local test_json='{"name": "Debug Test", "identifier": "debug_reload"}'
+  local encoded_value
+  encoded_value=$(echo -n "$test_json" | base64 -w 0 2>/dev/null || echo -n "$test_json" | base64 -b 0 2>/dev/null || echo -n "$test_json" | base64 | tr -d '\n')
+  echo "debug_reload=$encoded_value" > "$registry_file"
+
+  # Source suitey.sh
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  source "$suitey_script"
+
+  # Check what load_state will see
+  echo "Before load_state:" >&2
+  echo "  TEST_ADAPTER_REGISTRY_DIR: ${TEST_ADAPTER_REGISTRY_DIR:-not set}" >&2
+  echo "  ADAPTER_REGISTRY_FILE: ${ADAPTER_REGISTRY_FILE:-not set}" >&2
+  echo "  REGISTRY_BASE_DIR: ${REGISTRY_BASE_DIR:-not set}" >&2
+  echo "  Expected file: $registry_file" >&2
+  echo "  File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Check what happened
+  echo "After load_state:" >&2
+  echo "  ADAPTER_REGISTRY_FILE: ${ADAPTER_REGISTRY_FILE:-not set}" >&2
+  echo "  ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+  echo "  debug_reload in registry: $([[ -v ADAPTER_REGISTRY["debug_reload"] ]] && echo yes || echo no)" >&2
+
+  # Verify it was loaded
+  if [[ ! -v ADAPTER_REGISTRY["debug_reload"] ]]; then
+    echo "ERROR: Adapter not loaded by load_state" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "debug: run_adapter_registry_register then run_adapter_registry_get interaction" {
+  setup_adapter_registry_test
+
+  create_valid_mock_adapter "interaction_test"
+
+  # Call register helper
+  run_adapter_registry_register "interaction_test"
+  assert_success
+
+  # Immediately check file state
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  echo "After register:" >&2
+  echo "  File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+  if [[ -f "$registry_file" ]]; then
+    echo "  File size: $(stat -c%s "$registry_file" 2>/dev/null || echo "unknown")" >&2
+    echo "  File contents: $(cat "$registry_file")" >&2
+  fi
+
+  # Call get helper (this sources suitey.sh fresh)
+  local output
+  output=$(run_adapter_registry_get "interaction_test" 2>&1)
+  local exit_code=$?
+
+  echo "After get:" >&2
+  echo "  Output: $output" >&2
+  echo "  Exit code: $exit_code" >&2
+  echo "  File still exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+
+  # The output should not be null
+  if [[ "$output" == "null" ]] || [[ -z "$output" ]]; then
+    echo "ERROR: Get returned null/empty" >&2
+    echo "This is the exact failure we're debugging" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "debug: load_state behavior when ADAPTER_REGISTRY_FILE is pre-set" {
+  setup_adapter_registry_test
+
+  # Create file in test directory
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local test_json='{"name": "Pre-set Test", "identifier": "preset_test"}'
+  local encoded_value
+  encoded_value=$(echo -n "$test_json" | base64 -w 0 2>/dev/null || echo -n "$test_json" | base64 -b 0 2>/dev/null || echo -n "$test_json" | base64 | tr -d '\n')
+  echo "preset_test=$encoded_value" > "$registry_file"
+
+  # Source suitey.sh (this sets ADAPTER_REGISTRY_FILE)
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  source "$suitey_script"
+
+  # Check if ADAPTER_REGISTRY_FILE points to our file
+  local current_file="${ADAPTER_REGISTRY_FILE:-}"
+  echo "ADAPTER_REGISTRY_FILE after source: $current_file" >&2
+  echo "Expected file: $registry_file" >&2
+  echo "Files match: $([[ "$current_file" == "$registry_file" ]] && echo yes || echo no)" >&2
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Check if it loaded
+  if [[ ! -v ADAPTER_REGISTRY["preset_test"] ]]; then
+    echo "ERROR: Adapter not loaded" >&2
+    echo "  ADAPTER_REGISTRY_FILE: ${ADAPTER_REGISTRY_FILE:-not set}" >&2
+    echo "  Expected: $registry_file" >&2
+    echo "  File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "debug: load_state global variable update condition" {
+  setup_adapter_registry_test
+
+  # Create file
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local test_json='{"name": "Condition Test", "identifier": "condition_test"}'
+  local encoded_value
+  encoded_value=$(echo -n "$test_json" | base64 -w 0 2>/dev/null || echo -n "$test_json" | base64 -b 0 2>/dev/null || echo -n "$test_json" | base64 | tr -d '\n')
+  echo "condition_test=$encoded_value" > "$registry_file"
+
+  # Source suitey.sh
+  local suitey_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
+    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
+  else
+    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
+  fi
+  source "$suitey_script"
+
+  # Manually test the condition from load_state line 191
+  local registry_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
+  local test_registry_file="$registry_base_dir/suitey_adapter_registry"
+  
+  local condition_result=false
+  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || [[ -f "$test_registry_file" ]] || [[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
+    condition_result=true
+  fi
+
+  echo "Condition test:" >&2
+  echo "  TEST_ADAPTER_REGISTRY_DIR set: $([[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && echo yes || echo no)" >&2
+  echo "  File exists: $([[ -f "$test_registry_file" ]] && echo yes || echo no)" >&2
+  echo "  ADAPTER_REGISTRY_FILE exists: $([[ -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]] && echo yes || echo no)" >&2
+  echo "  Condition result: $condition_result" >&2
+
+  # Now call load_state and see what happens
+  adapter_registry_load_state
+
+  # Check if globals were updated
+  echo "After load_state:" >&2
+  echo "  ADAPTER_REGISTRY_FILE: ${ADAPTER_REGISTRY_FILE:-not set}" >&2
+  echo "  Expected: $test_registry_file" >&2
+  echo "  Match: $([[ "${ADAPTER_REGISTRY_FILE:-}" == "$test_registry_file" ]] && echo yes || echo no)" >&2
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
 # Error Handling Tests
 # ============================================================================
 

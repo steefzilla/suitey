@@ -987,8 +987,24 @@ assert_registry_data_flow() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -E -q "flow.*$adapter_identifier|${adapter_identifier}.*flow|passed.*$adapter_identifier"; then
-    echo "ERROR: Expected registry data to flow correctly for adapter '$adapter_identifier'"
+  # Check that adapter was processed through all phases:
+  # 1. Detection phase - adapter should be detected and processed
+  if ! echo "$output" | grep -E -q "(detected|processed|registry detect).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be detected in detection phase"
+    echo "Output was: $output"
+    return 1
+  fi
+
+  # 2. Discovery phase - adapter should be used for test suite discovery
+  if ! echo "$output" | grep -E -q "(discover_test_suites|registry.*discover).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be used in discovery phase"
+    echo "Output was: $output"
+    return 1
+  fi
+
+  # 3. Build detection phase - adapter should be used for build requirements detection
+  if ! echo "$output" | grep -E -q "(detect_build_requirements|registry.*detect_build).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be used in build detection phase"
     echo "Output was: $output"
     return 1
   fi
