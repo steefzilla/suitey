@@ -11,6 +11,45 @@
 load ../helpers/adapter_registry
 
 # ============================================================================
+# Helper function to source adapter registry modules from src/
+# ============================================================================
+
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
+# ============================================================================
 # Input Validation and Sanitization Security Tests
 # ============================================================================
 
@@ -388,16 +427,7 @@ EOF
 
   for i in {1..5}; do
     (
-      local suitey_script
-      if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-      elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-      else
-        suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-      fi
-
-      source "$suitey_script" >/dev/null 2>&1
+      _source_adapter_registry_modules
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" create_valid_mock_adapter "concurrent_input_$i"
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" run_adapter_registry_register "concurrent_input_$i" >/dev/null 2>&1
       echo "$?:$i"

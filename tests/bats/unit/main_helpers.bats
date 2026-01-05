@@ -10,17 +10,32 @@
 
 # Unit tests for Main helper functions
 
-# Find and source suitey.sh to get the helper functions
-suitey_script=""
-if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-else
-  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-fi
+# Source main.sh modules from src/
+_source_main_modules() {
+  # Find and source json_helpers.sh (needed by main.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
 
-source "$suitey_script"
+  # Find and source main.sh
+  local main_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/main.sh" ]]; then
+    main_script="$BATS_TEST_DIRNAME/../../../src/main.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/main.sh" ]]; then
+    main_script="$BATS_TEST_DIRNAME/../../src/main.sh"
+  else
+    main_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/main.sh"
+  fi
+  source "$main_script"
+}
+
+_source_main_modules
 
 # Mock helper functions for testing
 show_help() {

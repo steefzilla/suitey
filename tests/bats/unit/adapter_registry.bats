@@ -12,6 +12,34 @@ load ../helpers/adapter_registry
 load ../helpers/fixtures
 
 # ============================================================================
+# Helper function to source adapter registry modules from src/
+# ============================================================================
+
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
+# ============================================================================
 # JSON Helper Functions (for test assertions)
 # ============================================================================
 
@@ -325,7 +353,7 @@ json_test_has_field() {
   assert_adapter_found "$output" "test_adapter"
 
   # Save state (encodes to base64)
-  source "$(find "$BATS_TEST_DIRNAME" -name "suitey.sh" | head -1)"
+  _source_adapter_registry_modules
   adapter_registry_save_state
 
   # Clear in-memory state
@@ -429,7 +457,7 @@ EOF
   assert_adapter_found "$output" "special_adapter"
 
   # Save and reload
-  source "$(find "$BATS_TEST_DIRNAME" -name "suitey.sh" | head -1)"
+  _source_adapter_registry_modules
   adapter_registry_save_state
   ADAPTER_REGISTRY=()
   adapter_registry_load_state
@@ -548,22 +576,12 @@ EOF
   local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
   [[ -f "$registry_file" ]]
 
-  # Source suitey.sh fresh (simulating run_adapter_registry_get)
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source fresh (arrays will be reset)
-  source "$suitey_script"
+  # Source adapter registry modules fresh (simulating run_adapter_registry_get)
+  _source_adapter_registry_modules
 
   # Verify arrays are empty after sourcing (check if variable exists first due to set -u)
   if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
-    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing suitey.sh" >&2
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing adapter registry modules" >&2
     return 1
   fi
 
@@ -590,16 +608,8 @@ EOF
   # Register an adapter
   create_valid_mock_adapter "path_test_adapter"
   
-  # Source suitey.sh
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-  source "$suitey_script"
+  # Source adapter registry modules
+  _source_adapter_registry_modules
 
   # Register adapter (this will save state)
   create_valid_mock_adapter "path_test_adapter"
@@ -644,20 +654,12 @@ EOF
   
   echo "manual_test=$encoded_value" > "$registry_file"
 
-  # Source suitey.sh fresh
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-  source "$suitey_script"
+  # Source adapter registry modules fresh
+  _source_adapter_registry_modules
 
   # Verify arrays are empty (check if variable exists first due to set -u)
   if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
-    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing suitey.sh" >&2
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing adapter registry modules" >&2
     return 1
   fi
 
@@ -688,7 +690,7 @@ EOF
 @test "adapter_registry_get works after fresh source and load_state" {
   setup_adapter_registry_test
 
-  # Register an adapter using the helper (which sources suitey.sh)
+  # Register an adapter using the helper (which sources adapter registry modules)
   create_valid_mock_adapter "get_test_adapter"
   run_adapter_registry_register "get_test_adapter"
   assert_success
@@ -698,17 +700,8 @@ EOF
   [[ -f "$registry_file" ]]
 
   # Now simulate what run_adapter_registry_get does: source fresh and call get
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
   # Source fresh (this resets arrays)
-  source "$suitey_script"
+  _source_adapter_registry_modules
 
   # Call get (which should call load_state internally)
   local output

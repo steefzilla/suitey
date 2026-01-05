@@ -11,6 +11,45 @@
 load ../helpers/adapter_registry
 
 # ============================================================================
+# Helper function to source adapter registry modules from src/
+# ============================================================================
+
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
+# ============================================================================
 # Concurrent Operation Performance Tests
 # ============================================================================
 
@@ -28,17 +67,8 @@ load ../helpers/adapter_registry
   # Start registration processes
   for adapter_name in "${adapter_names[@]}"; do
     (
-      # Each process needs its own script sourcing
-      local suitey_script
-      if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-      elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-      else
-        suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-      fi
-
-      source "$suitey_script" >/dev/null 2>&1
+      # Each process needs its own module sourcing
+      _source_adapter_registry_modules
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" create_valid_mock_adapter "$adapter_name"
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" run_adapter_registry_register "$adapter_name" >/dev/null 2>&1
       echo "$adapter_name: $?"
@@ -63,7 +93,7 @@ load ../helpers/adapter_registry
   [ "$failed" -eq 0 ]
 
   # Verify all adapters were registered
-  source "$BATS_TEST_DIRNAME/../../../suitey.sh" >/dev/null 2>&1 2>/dev/null || source "$BATS_TEST_DIRNAME/../../suitey.sh" >/dev/null 2>&1
+  _source_adapter_registry_modules
   adapter_registry_load_state
 
   local registered_count=0
@@ -94,17 +124,8 @@ load ../helpers/adapter_registry
 
   for adapter_name in "${adapter_names[@]}"; do
     (
-      # Each process needs its own script sourcing
-      local suitey_script
-      if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-      elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-      else
-        suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-      fi
-
-      source "$suitey_script" >/dev/null 2>&1
+      # Each process needs its own module sourcing
+      _source_adapter_registry_modules
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" run_adapter_registry_get "$adapter_name" >/dev/null 2>&1
       echo "$adapter_name: $?"
     ) &
@@ -143,16 +164,7 @@ load ../helpers/adapter_registry
 
   # Start save operation
   (
-    local suitey_script
-    if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-      suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-    elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-      suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-    else
-      suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-    fi
-
-    source "$suitey_script" >/dev/null 2>&1
+    _source_adapter_registry_modules
     TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" create_valid_mock_adapter "concurrent_save_test"
     TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" adapter_registry_register "concurrent_save_test" >/dev/null 2>&1
     TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" adapter_registry_save_state >/dev/null 2>&1
@@ -162,16 +174,7 @@ load ../helpers/adapter_registry
   # Start load operation
   (
     sleep 0.1  # Small delay to ensure save starts first
-    local suitey_script
-    if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-      suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-    elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-      suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-    else
-      suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-    fi
-
-    source "$suitey_script" >/dev/null 2>&1
+    _source_adapter_registry_modules
     TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" adapter_registry_load_state >/dev/null 2>&1
     if [[ -v ADAPTER_REGISTRY["concurrent_save_load_test"] ]]; then
       echo "load_success"
@@ -245,16 +248,7 @@ load ../helpers/adapter_registry
 
   for i in {1..3}; do
     (
-      local suitey_script
-      if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-      elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-      else
-        suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-      fi
-
-      source "$suitey_script" >/dev/null 2>&1
+      _source_adapter_registry_modules
       TEST_ADAPTER_REGISTRY_DIR="$TEST_ADAPTER_REGISTRY_DIR" adapter_registry_load_state >/dev/null 2>&1
 
       local loaded_count=0
@@ -363,16 +357,7 @@ load ../helpers/adapter_registry
   local pids=()
   for i in {1..3}; do
     (
-      local suitey_script
-      if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-      elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-        suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-      else
-        suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-      fi
-
-      source "$suitey_script" >/dev/null 2>&1
+      _source_adapter_registry_modules
       # Just source and exit - tests memory usage of sourcing
     ) &
     pids+=($!)

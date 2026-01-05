@@ -10,17 +10,21 @@
 
 # Unit tests for BATS Adapter helper functions
 
-# Find and source suitey.sh to get the helper functions
-suitey_script=""
-if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-else
-  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-fi
+# Source BATS adapter from src/
+_source_bats_adapter() {
+  # Find and source adapters/bats.sh
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+}
 
-source "$suitey_script"
+_source_bats_adapter
 
 # Mock helper functions for testing
 find_bats_files() {

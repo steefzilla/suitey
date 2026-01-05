@@ -12,24 +12,32 @@
 
 load ../helpers/build_manager
 
-# Source suitey.sh to get Build Manager functions
-# Try multiple possible locations using BATS_TEST_DIRNAME
-if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../../../suitey.sh"
-else
-  # Fallback: try to find it from the workspace root
-  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  if [[ -f "$suitey_script" ]]; then
-    source "$suitey_script"
+# Source build manager modules from src/
+_source_build_manager_modules() {
+  # Find and source json_helpers.sh
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
   else
-    echo "ERROR: Could not find suitey.sh" >&2
-    exit 1
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
   fi
-fi
+  source "$json_helpers_script"
+
+  # Find and source build_manager.sh (which sources its dependencies)
+  local build_manager_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager.sh" ]]; then
+    build_manager_script="$BATS_TEST_DIRNAME/../../../src/build_manager.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager.sh" ]]; then
+    build_manager_script="$BATS_TEST_DIRNAME/../../src/build_manager.sh"
+  else
+    build_manager_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager.sh"
+  fi
+  source "$build_manager_script"
+}
+
+_source_build_manager_modules
 
 # Enable integration test mode for real Docker operations
 export SUITEY_INTEGRATION_TEST=1

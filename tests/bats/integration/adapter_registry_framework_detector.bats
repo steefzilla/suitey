@@ -12,24 +12,86 @@ load ../helpers/adapter_registry
 load ../helpers/framework_detector
 load ../helpers/fixtures
 
-# Source suitey.sh to get all functions
-# Try multiple possible locations using BATS_TEST_DIRNAME
-if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../../../suitey.sh" ]]; then
-  source "$BATS_TEST_DIRNAME/../../../../suitey.sh"
-else
-  # Fallback: try to find it from the workspace root
-  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  if [[ -f "$suitey_script" ]]; then
-    source "$suitey_script"
+# Source all required modules from src/ for integration tests
+_source_integration_modules() {
+  # Find and source json_helpers.sh
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
   else
-    echo "ERROR: Could not find suitey.sh" >&2
-    exit 1
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
   fi
-fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+
+  # Find and source framework_detector.sh
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Find and source scanner.sh
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Find and source adapters
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
+}
+
+_source_integration_modules
 
 # Enable integration test mode for real Docker operations
 export SUITEY_INTEGRATION_TEST=1
@@ -524,22 +586,9 @@ EOF
 run_framework_detector_registry_integration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
-  local scanner_script
 
-  # Determine the path to suitey.sh
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source suitey.sh to get access to functions, then call the framework detector function
-  output=$(
-    source "$scanner_script"
-    framework_detector_with_registry "$project_dir" 2>&1 || true
-  )
+  # Modules are already sourced via _source_integration_modules at the top
+  output=$(framework_detector_with_registry "$project_dir" 2>&1 || true)
   echo "$output"
 }
 

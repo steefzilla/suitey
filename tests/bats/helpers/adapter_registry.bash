@@ -510,22 +510,37 @@ EOF
 # Adapter Registry Function Wrappers
 # ============================================================================
 
+# Helper function to source adapter registry modules from src/
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
 # Call adapter registry functions
 run_adapter_registry_register() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Source the adapter script if it exists
   local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_identifier"
@@ -541,36 +556,16 @@ run_adapter_registry_register() {
 run_adapter_registry_get() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get "$adapter_identifier"
 }
 
 run_adapter_registry_get_all() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get_all
@@ -579,18 +574,8 @@ run_adapter_registry_get_all() {
 run_adapter_registry_is_registered() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_is_registered "$adapter_identifier"
@@ -599,54 +584,24 @@ run_adapter_registry_is_registered() {
 run_adapter_registry_get_by_capability() {
   local capability="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get_adapters_by_capability "$capability"
 }
 
 run_adapter_registry_initialize() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_initialize
 }
 
 run_adapter_registry_cleanup() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_cleanup
