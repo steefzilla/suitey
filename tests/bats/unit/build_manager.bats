@@ -1,4 +1,12 @@
 #!/usr/bin/env bats
+
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
+
 # Unit tests for Build Manager component
 # Tests Build Manager logic with mocked Docker operations
 

@@ -1,6 +1,13 @@
 # ============================================================================
 # BATS Framework Adapter
 # ============================================================================
+#
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
 
 # BATS adapter detection function
 bats_adapter_detect() {

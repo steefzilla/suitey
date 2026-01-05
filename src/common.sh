@@ -1,6 +1,13 @@
 # ============================================================================
 # Common Helper Functions and State
 # ============================================================================
+#
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
 
 # Colors for output (if terminal supports it)
 if [[ -t 1 ]]; then
