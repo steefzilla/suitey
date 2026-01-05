@@ -193,3 +193,208 @@ EOF"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
 }
+
+# ============================================================================
+# Advanced Shell Feature Tests (Nameref, Eval, Scope)
+# ============================================================================
+
+@test "nameref assignment to associative array" {
+  # Test if nameref assignment works at all
+  declare -A test_array
+  local -n ref="test_array"
+  ref["test_key"]="test_value"
+  
+  [ "${test_array[test_key]}" = "test_value" ]
+}
+
+@test "nameref assignment from function" {
+  # Test if nameref assignment works when called from a function
+  test_nameref_function() {
+    local array_name="$1"
+    local -n array_ref="$array_name"
+    array_ref["key"]="value"
+  }
+  
+  declare -A test_array
+  test_nameref_function "test_array"
+  
+  [ "${test_array[key]}" = "value" ]
+}
+
+@test "eval assignment in BATS context" {
+  # Test if eval works at all in BATS context
+  declare -A test_array
+  local array_name="test_array"
+  local key="test_key"
+  local value="test_value"
+  
+  eval "${array_name}[\"${key}\"]=\"${value}\""
+  
+  [ "${test_array[test_key]}" = "test_value" ]
+}
+
+@test "eval assignment from sourced function" {
+  # Test if eval works when called from a sourced function
+  test_eval_func() {
+    local array_name="$1"
+    local key="$2"
+    local value="$3"
+    eval "${array_name}[\"${key}\"]=\"${value}\""
+  }
+  
+  declare -A test_array
+  test_eval_func "test_array" "test_key" "test_value"
+  
+  [ "${test_array[test_key]}" = "test_value" ]
+}
+
+@test "eval assignment in while loop" {
+  # Test if eval works inside a while loop
+  declare -A test_array
+  local array_name="test_array"
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    eval "${array_name}[\"${key}\"]=\"${value}\""
+  done <<< "key1=value1"
+  
+  [ "${test_array[key1]}" = "value1" ]
+}
+
+@test "eval with printf %q for safe quoting" {
+  # Test if eval with printf %q works
+  declare -A test_array
+  local array_name="test_array"
+  local key="key1"
+  local value="value1"
+  
+  local safe_key
+  safe_key=$(printf '%q' "$key")
+  local safe_value
+  safe_value=$(printf '%q' "$value")
+  
+  eval "${array_name}[${safe_key}]=${safe_value}"
+  
+  [ "${test_array[key1]}" = "value1" ]
+}
+
+@test "eval variable scope from function" {
+  # Test if eval can see the array_name variable when called from a function
+  declare -A test_array
+  local array_name="test_array"
+  
+  test_eval_func() {
+    local arr_name="$1"
+    local key="key1"
+    local value="test_value"
+    local safe_key
+    safe_key=$(printf '%q' "$key")
+    local safe_value
+    safe_value=$(printf '%q' "$value")
+    
+    # Check if we can see the array from here
+    if declare -p "$arr_name" &>/dev/null 2>&1; then
+      echo "Array $arr_name exists from function" >&2
+    else
+      echo "Array $arr_name does NOT exist from function" >&2
+    fi
+    
+    eval "${arr_name}[${safe_key}]=${safe_value}"
+    
+    # Check again after eval
+    if declare -p "$arr_name" &>/dev/null 2>&1; then
+      echo "After eval, array $arr_name exists" >&2
+    else
+      echo "After eval, array $arr_name does NOT exist" >&2
+    fi
+  }
+  
+  test_eval_func "$array_name"
+  
+  [ "${test_array[key1]}" = "test_value" ]
+}
+
+@test "array visibility across function scope" {
+  # Test array visibility in function vs test scope
+  declare -A test_array
+  
+  # Create a wrapper function that tests array visibility
+  test_load_wrapper() {
+    local array_name="$1"
+    local key="$2"
+    local value="$3"
+    
+    # Check if array exists
+    if declare -p "$array_name" &>/dev/null 2>&1; then
+      echo "Array $array_name EXISTS in wrapper" >&2
+    else
+      echo "Array $array_name does NOT exist in wrapper" >&2
+    fi
+    
+    # Assign using eval
+    local safe_key
+    safe_key=$(printf '%q' "$key")
+    local safe_value
+    safe_value=$(printf '%q' "$value")
+    
+    # Check array again right before eval
+    if declare -p "$array_name" &>/dev/null 2>&1; then
+      echo "Array $array_name EXISTS right before eval" >&2
+    else
+      echo "Array $array_name does NOT exist right before eval" >&2
+    fi
+    
+    eval "${array_name}[${safe_key}]=${safe_value}"
+    
+    # Check array right after eval
+    if declare -p "$array_name" &>/dev/null 2>&1; then
+      echo "Array $array_name EXISTS right after eval" >&2
+    else
+      echo "Array $array_name does NOT exist right after eval" >&2
+    fi
+  }
+  
+  if declare -p "test_array" &>/dev/null 2>&1; then
+    echo "Array test_array EXISTS in test" >&2
+  else
+    echo "Array test_array does NOT exist in test" >&2
+  fi
+  
+  test_load_wrapper "test_array" "key1" "test_value"
+  
+  if declare -p "test_array" &>/dev/null 2>&1; then
+    echo "Array test_array EXISTS in test after call" >&2
+  else
+    echo "Array test_array does NOT exist in test after call" >&2
+  fi
+  
+  [ "${test_array[key1]}" = "test_value" ]
+}
+
+@test "function subshell detection" {
+  # Test if functions run in subshells (they shouldn't)
+  declare -A test_array
+  
+  # Set a marker variable
+  TEST_MARKER="before_function"
+  
+  # Check if function can see/modify variables
+  test_subshell_check() {
+    local array_name="$1"
+    TEST_MARKER="inside_function"
+    
+    # Try to modify the array
+    local safe_key
+    safe_key=$(printf '%q' "key1")
+    local safe_value
+    safe_value=$(printf '%q' "test_value")
+    eval "${array_name}[${safe_key}]=${safe_value}"
+  }
+  
+  test_subshell_check "test_array"
+  
+  # If function is in subshell, TEST_MARKER would still be "before_function"
+  [ "$TEST_MARKER" = "inside_function" ]
+  [ "${test_array[key1]}" = "test_value" ]
+}

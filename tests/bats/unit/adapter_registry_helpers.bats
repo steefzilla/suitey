@@ -191,33 +191,10 @@ load ../helpers/adapter_registry
 }
 
 # ============================================================================
-# Diagnostic Tests for Array Loading Issue
+# Adapter Registry Array Loading Tests
 # ============================================================================
 
-@test "diagnostic: nameref assignment to associative array works" {
-	# Test if nameref assignment works at all
-	declare -A test_array
-	local -n ref="test_array"
-	ref["test_key"]="test_value"
-	
-	[ "${test_array[test_key]}" = "test_value" ]
-}
-
-@test "diagnostic: nameref assignment works from function" {
-	# Test if nameref assignment works when called from a function
-	test_nameref_function() {
-		local array_name="$1"
-		local -n array_ref="$array_name"
-		array_ref["key"]="value"
-	}
-	
-	declare -A test_array
-	test_nameref_function "test_array"
-	
-	[ "${test_array[key]}" = "value" ]
-}
-
-@test "diagnostic: decode value works for saved data" {
+@test "decode value works for saved data" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_decode.txt"
@@ -239,7 +216,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: file content is correct after save" {
+@test "file content is correct after save" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_content.txt"
@@ -260,7 +237,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: load function reads file correctly" {
+@test "load function reads file correctly" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_read.txt"
@@ -293,7 +270,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: load function with global array" {
+@test "load function with global array" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_global.txt"
@@ -319,7 +296,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: verify decode exit code capture" {
+@test "verify decode exit code capture" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_exit.txt"
@@ -344,65 +321,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: eval assignment works in BATS test context" {
-	# Test if eval works at all in BATS context
-	declare -A test_array
-	local array_name="test_array"
-	local key="test_key"
-	local value="test_value"
-	
-	eval "${array_name}[\"${key}\"]=\"${value}\""
-	
-	[ "${test_array[test_key]}" = "test_value" ]
-}
-
-@test "diagnostic: eval assignment works from sourced function in BATS" {
-	# Test if eval works when called from a sourced function
-	test_eval_func() {
-		local array_name="$1"
-		local key="$2"
-		local value="$3"
-		eval "${array_name}[\"${key}\"]=\"${value}\""
-	}
-	
-	declare -A test_array
-	test_eval_func "test_array" "test_key" "test_value"
-	
-	[ "${test_array[test_key]}" = "test_value" ]
-}
-
-@test "diagnostic: eval assignment works in while loop" {
-	# Test if eval works inside a while loop
-	declare -A test_array
-	local array_name="test_array"
-	
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		local key="${line%%=*}"
-		local value="${line#*=}"
-		eval "${array_name}[\"${key}\"]=\"${value}\""
-	done <<< "key1=value1"
-	
-	[ "${test_array[key1]}" = "value1" ]
-}
-
-@test "diagnostic: eval with printf %q works in BATS" {
-	# Test if eval with printf %q works
-	declare -A test_array
-	local array_name="test_array"
-	local key="key1"
-	local value="value1"
-	
-	local safe_key
-	safe_key=$(printf '%q' "$key")
-	local safe_value
-	safe_value=$(printf '%q' "$value")
-	
-	eval "${array_name}[${safe_key}]=${safe_value}"
-	
-	[ "${test_array[key1]}" = "value1" ]
-}
-
-@test "diagnostic: load function called from test vs helper" {
+@test "load function called from test vs helper" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_scope.txt"
@@ -430,7 +349,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: check if array exists before eval" {
+@test "check if array exists before eval" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_exists.txt"
@@ -469,7 +388,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: manual eval assignment matches function behavior" {
+@test "manual eval assignment matches function behavior" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_manual.txt"
@@ -510,7 +429,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: exact function replication with file read" {
+@test "exact function replication with file read" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_exact.txt"
@@ -563,147 +482,7 @@ load ../helpers/adapter_registry
 	teardown_adapter_registry_test
 }
 
-@test "diagnostic: eval can see array name variable from function" {
-	setup_adapter_registry_test
-	
-	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_eval_scope.txt"
-	echo "key1=dGVzdF92YWx1ZQ==" > "$test_file"
-	
-	declare -A test_array
-	local array_name="test_array"
-	
-	# Test if eval can see the array_name variable when called from a function
-	test_eval_func() {
-		local arr_name="$1"
-		local key="key1"
-		local value="test_value"
-		local safe_key
-		safe_key=$(printf '%q' "$key")
-		local safe_value
-		safe_value=$(printf '%q' "$value")
-		
-		echo "Inside function, arr_name='$arr_name'" >&2
-		echo "Inside function, about to eval: ${arr_name}[${safe_key}]=${safe_value}" >&2
-		
-		# Check if we can see the array from here
-		if declare -p "$arr_name" &>/dev/null 2>&1; then
-			echo "Array $arr_name exists from function" >&2
-			declare -p "$arr_name" >&2
-		else
-			echo "Array $arr_name does NOT exist from function" >&2
-		fi
-		
-		eval "${arr_name}[${safe_key}]=${safe_value}"
-		
-		# Check again after eval
-		if declare -p "$arr_name" &>/dev/null 2>&1; then
-			echo "After eval, array $arr_name exists" >&2
-			declare -p "$arr_name" >&2
-		else
-			echo "After eval, array $arr_name does NOT exist" >&2
-		fi
-	}
-	
-	test_eval_func "$array_name" "$test_file"
-	
-	echo "After function call, keys: ${!test_array[@]}" >&2
-	echo "After function call, value: ${test_array[key1]:-empty}" >&2
-	
-	[ "${test_array[key1]}" = "test_value" ]
-	
-	teardown_adapter_registry_test
-}
-
-@test "diagnostic: check array visibility in function vs test scope" {
-	setup_adapter_registry_test
-	
-	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_visibility.txt"
-	echo "key1=dGVzdF92YWx1ZQ==" > "$test_file"
-	
-	declare -A test_array
-	
-	# Create a wrapper function that mimics what _adapter_registry_load_array_from_file does
-	test_load_wrapper() {
-		local array_name="$1"
-		local file_path="$2"
-		
-		echo "=== Inside wrapper function ===" >&2
-		echo "array_name='$array_name'" >&2
-		echo "file_path='$file_path'" >&2
-		
-		# Check if array exists
-		if declare -p "$array_name" &>/dev/null 2>&1; then
-			echo "Array $array_name EXISTS in wrapper" >&2
-			declare -p "$array_name" >&2
-		else
-			echo "Array $array_name does NOT exist in wrapper" >&2
-		fi
-		
-		# Try to read and assign
-		local line
-		line=$(head -n 1 "$file_path")
-		local key="${line%%=*}"
-		local encoded_value="${line#*=}"
-		
-		local decoded_value
-		decoded_value=$(_adapter_registry_decode_value "$encoded_value" 2>/dev/null)
-		
-		if [[ -n "$decoded_value" ]]; then
-			local safe_key
-			safe_key=$(printf '%q' "$key")
-			local safe_value
-			safe_value=$(printf '%q' "$decoded_value")
-			
-			echo "About to eval: ${array_name}[${safe_key}]=${safe_value}" >&2
-			
-			# Check array again right before eval
-			if declare -p "$array_name" &>/dev/null 2>&1; then
-				echo "Array $array_name EXISTS right before eval" >&2
-			else
-				echo "Array $array_name does NOT exist right before eval" >&2
-			fi
-			
-			eval "${array_name}[${safe_key}]=${safe_value}"
-			
-			# Check array right after eval
-			if declare -p "$array_name" &>/dev/null 2>&1; then
-				echo "Array $array_name EXISTS right after eval" >&2
-				declare -p "$array_name" >&2
-			else
-				echo "Array $array_name does NOT exist right after eval" >&2
-			fi
-		fi
-		
-		echo "=== End wrapper function ===" >&2
-	}
-	
-	echo "=== Before function call ===" >&2
-	if declare -p "test_array" &>/dev/null 2>&1; then
-		echo "Array test_array EXISTS in test" >&2
-		declare -p "test_array" >&2
-	else
-		echo "Array test_array does NOT exist in test" >&2
-	fi
-	
-	test_load_wrapper "test_array" "$test_file"
-	
-	echo "=== After function call ===" >&2
-	if declare -p "test_array" &>/dev/null 2>&1; then
-		echo "Array test_array EXISTS in test after call" >&2
-		declare -p "test_array" >&2
-	else
-		echo "Array test_array does NOT exist in test after call" >&2
-	fi
-	
-	echo "Keys: ${!test_array[@]}" >&2
-	echo "Value: ${test_array[key1]:-empty}" >&2
-	
-	[ "${test_array[key1]}" = "test_value" ]
-	
-	teardown_adapter_registry_test
-}
-
-@test "diagnostic: compare actual function call vs wrapper" {
+@test "compare actual function call vs wrapper" {
 	setup_adapter_registry_test
 	
 	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_compare.txt"
@@ -768,44 +547,6 @@ load ../helpers/adapter_registry
 	[ "${test_array1[key1]}" = "test_value" ]
 	[ "$loaded_count" -eq 1 ]
 	[ "${test_array2[key1]}" = "test_value" ]
-	
-	teardown_adapter_registry_test
-}
-
-@test "diagnostic: check if function is in subshell" {
-	setup_adapter_registry_test
-	
-	local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_subshell.txt"
-	echo "key1=dGVzdF92YWx1ZQ==" > "$test_file"
-	
-	declare -A test_array
-	
-	# Set a marker variable
-	TEST_MARKER="before_function"
-	
-	# Check if function can see/modify variables
-	test_subshell_check() {
-		local array_name="$1"
-		TEST_MARKER="inside_function"
-		echo "TEST_MARKER in function: $TEST_MARKER" >&2
-		
-		# Try to modify the array
-		local safe_key
-		safe_key=$(printf '%q' "key1")
-		local safe_value
-		safe_value=$(printf '%q' "test_value")
-		eval "${array_name}[${safe_key}]=${safe_value}"
-	}
-	
-	test_subshell_check "test_array"
-	
-	echo "TEST_MARKER after function: $TEST_MARKER" >&2
-	echo "test_array keys: ${!test_array[@]}" >&2
-	echo "test_array[key1]: '${test_array[key1]:-empty}'" >&2
-	
-	# If function is in subshell, TEST_MARKER would still be "before_function"
-	[ "$TEST_MARKER" = "inside_function" ]
-	[ "${test_array[key1]}" = "test_value" ]
 	
 	teardown_adapter_registry_test
 }
