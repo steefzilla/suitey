@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Test fixture generators for Project Scanner tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
 
 # Create a complete BATS project structure
 create_bats_project() {

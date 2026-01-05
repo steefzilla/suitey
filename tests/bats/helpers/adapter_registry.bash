@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Adapter Registry tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 # ============================================================================
 # Source the adapter registry helpers module
@@ -54,20 +73,10 @@ setup_adapter_registry_test() {
 }
 
 # Clean up temporary directory and registry state
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_adapter_registry_test() {
-  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -d "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
-    rm -rf "$TEST_ADAPTER_REGISTRY_DIR"
-    unset TEST_ADAPTER_REGISTRY_DIR
-  fi
-
-  # Clean up registry state files
-  rm -f /tmp/suitey_adapter_registry /tmp/suitey_adapter_capabilities /tmp/suitey_adapter_order /tmp/suitey_adapter_init
-  # REMOVED: Aggressive cleanup that deletes other parallel tests' directories
-  # This was causing race conditions where one test's teardown would delete
-  # directories that other parallel tests were still using.
-  # If orphaned directories need cleanup, it should be done at the end of the
-  # test suite, not during individual test teardown.
-  # find /tmp -maxdepth 1 -name "suitey_adapter_test_*" -type d -exec rm -rf {} + 2>/dev/null || true
+  safe_teardown_adapter_registry
 }
 
 # ============================================================================

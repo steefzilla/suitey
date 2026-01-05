@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Build Manager Docker tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 # ============================================================================
 # Source the build manager docker module
@@ -55,11 +74,11 @@ setup_build_manager_docker_test() {
 }
 
 # Clean up temporary directory
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_build_manager_docker_test() {
-  if [[ -n "${TEST_BUILD_MANAGER_DIR:-}" ]] && [[ -d "$TEST_BUILD_MANAGER_DIR" ]]; then
-    rm -rf "$TEST_BUILD_MANAGER_DIR"
-    unset TEST_BUILD_MANAGER_DIR
-  fi
+  # Clean up test directory using common utility
+  safe_teardown_test_directory "TEST_BUILD_MANAGER_DIR"
 
   # Clean up any mock containers
   for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do

@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Build Manager Integration tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 build_manager_integration_script=""
 if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_integration.sh" ]]; then
@@ -15,5 +34,7 @@ json_test_get() { local json="$1"; local path="$2"; echo "$json" | jq -r "$path"
 json_test_validate() { local json="$1"; echo "$json" | jq . >/dev/null 2>&1; }
 
 setup_build_manager_integration_test() { TEST_BUILD_MANAGER_DIR=$(mktemp -d -t "suitey_build_int_test_${1:-test}_XXXXXX"); export TEST_BUILD_MANAGER_DIR; echo "$TEST_BUILD_MANAGER_DIR"; }
-teardown_build_manager_integration_test() { [[ -n "${TEST_BUILD_MANAGER_DIR:-}" ]] && rm -rf "$TEST_BUILD_MANAGER_DIR"; unset TEST_BUILD_MANAGER_DIR; }
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
+teardown_build_manager_integration_test() { safe_teardown_test_directory "TEST_BUILD_MANAGER_DIR"; }
 

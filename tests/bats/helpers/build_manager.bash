@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Build Manager tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 # ============================================================================
 # Source the build manager helper modules
@@ -125,6 +144,8 @@ setup_build_manager_test() {
 }
 
 # Clean up temporary directory and build manager state
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_build_manager_test() {
   # Clean up async operations first
   cleanup_async_operations 2>/dev/null || true
@@ -132,23 +153,8 @@ teardown_build_manager_test() {
   # Clean up environment simulation
   cleanup_environment_simulation 2>/dev/null || true
 
-  if [[ -n "${TEST_BUILD_MANAGER_DIR:-}" ]] && [[ -d "$TEST_BUILD_MANAGER_DIR" ]]; then
-    rm -rf "$TEST_BUILD_MANAGER_DIR" 2>/dev/null || true
-    unset TEST_BUILD_MANAGER_DIR
-  fi
-
-  # Clean up build manager state files
-  rm -f /tmp/suitey_build_manager_* /tmp/suitey_build_* 2>/dev/null || true
-  # Clean up async operation files
-  rm -f /tmp/async_operation_* 2>/dev/null || true
-  # Clean up environment simulation files
-  rm -f /tmp/mock_* 2>/dev/null || true
-  # REMOVED: Aggressive cleanup that deletes other parallel tests' directories
-  # This was causing race conditions where one test's teardown would delete
-  # directories that other parallel tests were still using.
-  # If orphaned directories need cleanup, it should be done at the end of the
-  # test suite, not during individual test teardown.
-  # find /tmp -maxdepth 1 -name "suitey_build_manager_test_*" -type d -exec rm -rf {} + 2>/dev/null \; || true
+  # Use common teardown utility for directory and file cleanup
+  safe_teardown_build_manager
 
   # Reset mock manager
   mock_manager_reset 2>/dev/null || true
