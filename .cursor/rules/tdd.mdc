@@ -1,5 +1,6 @@
 ---
-alwaysApply: false
+alwaysApply: true
 ---
 Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user.
 If there is a problem, first check relevant environment tests, then relevant unit tests, then relevant integration tests, then finally end to end tests.
+Do not put debug statements in the code to diagnose. Also do not create scripts to diagnose. Instead, search the test suite for any tests that might give you insight on what's going on. If you find any that will help, run them and use their information to help you.If you can't find any, consider creating unit or integration tests for whatever functionality is uncertain. 
