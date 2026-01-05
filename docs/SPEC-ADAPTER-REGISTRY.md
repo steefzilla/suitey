@@ -99,16 +99,19 @@ All framework adapters must implement a consistent interface that defines the co
   - Specifies how to build the project in a containerized environment
   - Returns an array of `BuildStep` objects containing:
     - `step_name: string` - Build step identifier
-    - `docker_image: string` - Docker image to use
-    - `build_command: string` - Build command to execute
+    - `docker_image: string` - Docker base image to use for building
+    - `install_dependencies_command: string` - Command to install dependencies (optional)
+    - `build_command: string` - Build command to execute (should support parallel builds)
     - `working_directory: string` - Working directory in container
-    - `volume_mounts: array` - Volume mounts for build artifacts
+    - `volume_mounts: array` - Volume mounts for build artifacts (temporary)
     - `environment_variables: object` - Environment variables
+    - `cpu_cores: number` - Number of CPU cores to allocate (optional, defaults to available cores)
 
 #### 4. Execution Methods
 
-- **`execute_test_suite(test_suite: TestSuite, build_artifacts: BuildArtifacts, execution_config: object) -> ExecutionResult`**
+- **`execute_test_suite(test_suite: TestSuite, test_image: TestImage, execution_config: object) -> ExecutionResult`**
   - Runs tests using the framework's native tools in containers
+  - Uses pre-built test image (if build was required) or base image (if no build)
   - Handles Docker container creation, execution, and cleanup
   - Returns an `ExecutionResult` containing:
     - `exit_code: number` - Exit code from test runner
@@ -116,6 +119,7 @@ All framework adapters must implement a consistent interface that defines the co
     - `output: string` - Raw stdout/stderr output
     - `container_id: string` - Docker container ID (if used)
     - `execution_method: string` - Execution method used (`docker`, `docker-compose`, `native`)
+    - `test_image: string` - Test image name/tag used (if applicable)
 
 #### 5. Parsing Methods
 

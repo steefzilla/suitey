@@ -12,6 +12,7 @@ The source code is organized into the following modules in the `src/` directory:
 - **`adapters/bats.sh`** - BATS framework adapter and detection functions
 - **`adapters/rust.sh`** - Rust framework adapter and detection functions
 - **`scanner.sh`** - Main scanner orchestration functions
+- **`build_manager.sh`** - Build Manager for orchestrating containerized builds
 - **`main.sh`** - Main entry point and help text
 
 ## Building
@@ -97,7 +98,8 @@ The modules are included in this order to satisfy dependencies:
 4. `adapters/bats.sh` - Depends on framework_detector.sh, adapter_registry.sh, and common.sh
 5. `adapters/rust.sh` - Depends on framework_detector.sh, adapter_registry.sh, and common.sh
 6. `scanner.sh` - Depends on all previous modules
-7. `main.sh` - Depends on scanner.sh and all previous modules
+7. `build_manager.sh` - Depends on scanner.sh, framework_detector.sh, adapter_registry.sh, and common.sh
+8. `main.sh` - Depends on build_manager.sh, scanner.sh and all previous modules
 
 ## Development Workflow
 

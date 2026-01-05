@@ -1,0 +1,626 @@
+# ============================================================================
+# Adapter Registry Helper Functions
+# ============================================================================
+#
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# fill-column: 120
+# End:
+
+# ============================================================================
+# Variable Declarations (for set -u compatibility)
+# ============================================================================
+# Declare variables early to prevent "unbound variable" errors when set -u is enabled
+# These are declared here as a safety measure, even though they're also declared in adapter_registry.sh
+# This ensures the variables exist if adapter_registry_helpers.sh is sourced before adapter_registry.sh
+# Use eval to avoid errors if variable is already declared
+eval "declare -A ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true" || true
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+# ============================================================================
+# Return-Data Pattern Helper Function
+# ============================================================================
+#
+# Helper function to populate an associative array from return-data format
+# This is a reusable pattern for functions that return data instead of modifying
+# arrays directly (to avoid BATS scoping issues).
+#
+# PATTERN: Return-Data Approach
+# This helper implements the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, functions return data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Arguments:
+#   array_name: Name of associative array to populate
+#   output: Output from a return-data function (first line is count, rest are key=value)
+# Returns:
+#   Populates the named array and returns the count
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(_adapter_registry_populate_array_from_output "array_name" "$output")
+_adapter_registry_populate_array_from_output() {
+	local array_name="$1"
+	local output="$2"
+	
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	# Populate array from remaining lines (only if count > 0)
+	if [[ "$count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			eval "${array_name}[\"$key\"]=\"$value\""
+		done < <(echo "$output" | tail -n +2)
+	fi
+	
+	echo "$count"
+	return 0
+}
+
+# Helper: Determine the base directory for registry files
+_adapter_registry_determine_base_dir() {
+	# Determine the base directory - prioritize TEST_ADAPTER_REGISTRY_DIR if set
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		# TEST_ADAPTER_REGISTRY_DIR takes precedence for test consistency
+		echo "$TEST_ADAPTER_REGISTRY_DIR"
+	elif [[ -n "${REGISTRY_BASE_DIR:-}" ]] && [[ -d "${REGISTRY_BASE_DIR:-}" ]]; then
+		# Use existing REGISTRY_BASE_DIR if it's a valid directory
+		echo "$REGISTRY_BASE_DIR"
+	else
+		# Fall back to TMPDIR
+		echo "${TMPDIR:-/tmp}"
+	fi
+}
+
+# Helper: Ensure directory exists and is writable
+_adapter_registry_ensure_directory() {
+	local dir="$1"
+
+	if ! mkdir -p "$dir" 2>&1; then
+		echo "ERROR: Failed to create registry directory: $dir" >&2  # documented: Directory creation failed
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Base64 encode a value with platform fallbacks
+_adapter_registry_encode_value() {
+	local value="$1"
+	local encoded_value=""
+
+	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
+	if encoded_value=$(echo -n "$value" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with -w 0
+	elif encoded_value=$(echo -n "$value" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with -b 0
+	elif encoded_value=$(echo -n "$value" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with base64 + tr
+	fi
+
+	if [[ -z "$encoded_value" ]]; then
+		echo "ERROR: Failed to encode value" >&2  # documented: Base64 encoding failed
+		return 1
+	fi
+
+	echo "$encoded_value"
+	return 0
+}
+
+# Helper: Base64 decode a value with platform fallbacks
+_adapter_registry_decode_value() {
+	local encoded_value="$1"
+	local decoded_value=""
+
+	# Try different base64 decoding variants
+	# Check both exit code and non-empty output
+	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null); then
+		if [[ -n "$decoded_value" ]]; then
+			echo "$decoded_value"
+			return 0
+		fi
+	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null); then
+		if [[ -n "$decoded_value" ]]; then
+			echo "$decoded_value"
+			return 0
+		fi
+	fi
+
+	# All attempts failed
+	echo ""
+	return 1
+}
+
+# Helper: Save an associative array to a file with base64 encoding
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_array_to_file() {
+	local array_name="$1"
+	local file_path="$2"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Get the array reference dynamically
+	local -n array_ref="$array_name"
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for registry file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write all data to temporary file
+	for key in "${!array_ref[@]}"; do
+		local value="${array_ref[$key]}"
+		# Skip empty values (shouldn't happen, but defensive)
+		if [[ -z "$value" ]]; then
+			# Silently skip empty values (they shouldn't be in the array anyway)
+			continue
+		fi
+		local encoded_value
+		if ! encoded_value=$(_adapter_registry_encode_value "$value"); then
+			# Clean up temp file on error
+			rm -f "$temp_file"
+			echo "ERROR: Failed to encode value for key '$key': '$value'" >&2
+			return 1
+		fi
+		echo "$key=$encoded_value" >> "$temp_file" || {
+			rm -f "$temp_file"
+			echo "ERROR: Failed to write to temporary file: $temp_file" >&2
+			return 1
+		}
+	done
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
+		return 1
+	fi
+
+	return 0
+}
+
+# Helper: Load an associative array from a file with base64 decoding
+#
+# PATTERN: Return-Data Approach
+# This function uses the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Returns: first line is count, subsequent lines are key=value pairs (decoded)
+# Caller should read first line for count, then process remaining lines to populate array
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(echo "$output" | head -n 1)
+#   if [[ "$count" -gt 0 ]]; then
+#     while IFS='=' read -r key value || [[ -n "$key" ]]; do
+#       [[ -z "$key" ]] && continue
+#       array["$key"]="$value"
+#     done < <(echo "$output" | tail -n +2)
+#   fi
+_adapter_registry_load_array_from_file() {
+	local array_name="$1"
+	local file_path="$2"
+
+	if [[ ! -f "$file_path" ]]; then
+		echo "0"
+		return 0
+	fi
+
+	local loaded_count=0
+	local line_key
+	local line_encoded_value
+	local output_lines=""
+	
+	# Process file and build output
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Skip empty lines
+		[[ -z "$line" ]] && continue
+
+		# Split on first '=' only (since base64 can contain '=')
+		line_key="${line%%=*}"
+		line_encoded_value="${line#*=}"
+
+		# Skip malformed entries
+		if [[ -n "$line_key" ]] && [[ -n "$line_encoded_value" ]]; then
+			local decoded_value
+			local decode_exit
+			decoded_value=$(_adapter_registry_decode_value "$line_encoded_value" 2>/dev/null)
+			decode_exit=$?
+			if [[ $decode_exit -eq 0 ]] && [[ -n "$decoded_value" ]]; then
+				# Buffer the output
+				output_lines+="${line_key}=${decoded_value}"$'\n'
+				loaded_count=$((loaded_count + 1))
+			else
+				# documented: Base64 decode failed, skipping corrupted registry entry
+				echo "WARNING: Failed to decode base64 value for key '$line_key', skipping entry" >&2
+			fi
+		fi
+	done < "$file_path"
+
+	# Output count first, then data
+	echo "$loaded_count"
+	echo -n "$output_lines"
+	return 0
+}
+
+# Helper: Save order array to file
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_order() {
+	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for order file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write all data to temporary file
+	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary order file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2  # documented: Order file write failed
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Save initialized flag to file
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_initialized() {
+	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for init file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write data to temporary file
+	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary init file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Determine file locations and update globals
+_adapter_registry_determine_file_locations() {
+	# If TEST_ADAPTER_REGISTRY_DIR is set, always use it (for test consistency)
+	local registry_base_dir
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		registry_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
+	else
+		# Re-evaluate REGISTRY_BASE_DIR to use current TEST_ADAPTER_REGISTRY_DIR value
+		registry_base_dir="${TMPDIR:-/tmp}"
+	fi
+
+	local registry_file="$registry_base_dir/suitey_adapter_registry"
+	local capabilities_file="$registry_base_dir/suitey_adapter_capabilities"
+	local order_file="$registry_base_dir/suitey_adapter_order"
+	local init_file="$registry_base_dir/suitey_adapter_init"
+
+	# Ensure directory exists before trying to read files
+	mkdir -p "$registry_base_dir"
+
+	# Check if we're switching locations BEFORE updating globals
+	local switching_locations=false
+	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		switching_locations=true
+	fi
+
+	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
+	# or if registry file exists in the new location, or if globals haven't been set yet
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
+		[[ -f "$registry_file" ]] || \
+		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
+		REGISTRY_BASE_DIR="$registry_base_dir"
+		ADAPTER_REGISTRY_FILE="$registry_file"
+		ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
+		ADAPTER_REGISTRY_ORDER_FILE="$order_file"
+		ADAPTER_REGISTRY_INIT_FILE="$init_file"
+	fi
+
+	# Return the actual file paths
+	echo "$registry_file"
+	echo "$capabilities_file"
+	echo "$order_file"
+	echo "$init_file"
+}
+
+# Helper: Determine if state should be reloaded
+_adapter_registry_should_reload() {
+	local registry_file="$1"
+	local capabilities_file="$2"
+	local switching_locations="$3"
+
+	# Reload if the registry file exists (to load latest state from disk),
+	# or if we're switching to a different file location
+	if [[ -f "$registry_file" ]]; then
+		# File exists - reload to get latest state
+		echo "true"
+	elif [[ "$switching_locations" == "true" ]]; then
+		# Switching locations - clear to start fresh
+		echo "true"
+	else
+		echo "false"
+	fi
+}
+
+# Helper: Rebuild capabilities index from loaded adapters
+_adapter_registry_rebuild_capabilities() {
+	local capabilities_loaded="$1"
+	local switching_locations="$2"
+	local capabilities_file="$3"
+
+	# Rebuild capabilities index from loaded adapters only if:
+	# 1. Capabilities file doesn't exist or is empty (capabilities_loaded is false)
+	# 2. We're switching locations (need to rebuild from scratch)
+	# 3. The capabilities file exists but is empty
+	# This prevents unnecessary rebuilds on every load_state() call, but ensures
+	# consistency when files are missing or when switching locations
+	if [[ ${#ADAPTER_REGISTRY[@]} -gt 0 ]]; then
+		local should_rebuild_capabilities=false
+
+		if [[ "$capabilities_loaded" == "false" ]]; then
+			# No capabilities file or file is empty - rebuild from adapters
+			should_rebuild_capabilities=true
+		elif [[ "$switching_locations" == "true" ]]; then
+			# Switching locations - rebuild to ensure consistency
+			should_rebuild_capabilities=true
+		elif [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$capabilities_file" ]]; then
+			# Capabilities file exists but is empty - rebuild
+			should_rebuild_capabilities=true
+		fi
+
+		if [[ "$should_rebuild_capabilities" == "true" ]]; then
+			# Clear and rebuild from scratch
+			ADAPTER_REGISTRY_CAPABILITIES=()
+			for adapter_id in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+				if [[ -v ADAPTER_REGISTRY["$adapter_id"] ]]; then
+					adapter_registry_index_capabilities "$adapter_id" "${ADAPTER_REGISTRY["$adapter_id"]}"
+				fi
+			done
+		fi
+	fi
+}
+
+# Helper: Parse file paths from helper output
+_adapter_registry_parse_file_paths() {
+	local file_paths="$1"
+	echo "$file_paths" | sed -n '1p'
+	echo "$file_paths" | sed -n '2p'
+	echo "$file_paths" | sed -n '3p'
+	echo "$file_paths" | sed -n '4p'
+}
+
+# Helper: Load order array from file with filtering
+_adapter_registry_load_order_array() {
+	local order_file="$1"
+	if [[ -f "$order_file" ]]; then
+		mapfile -t ADAPTER_REGISTRY_ORDER < "$order_file"
+		# Filter out empty lines and trim spaces (avoid command substitution for BATS compatibility)
+		local filtered_array=()
+		local element
+		for element in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+			# Trim leading/trailing spaces
+			local trimmed="${element#"${element%%[![:space:]]*}"}"  # Remove leading spaces
+			trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"  # Remove trailing spaces
+			# Only add non-empty elements
+			[[ -n "$trimmed" ]] && filtered_array+=("$trimmed")
+		done
+		ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
+	fi
+}
+
+# Helper: Load order array from file using return-data pattern
+# Returns: count on first line, then one identifier per line
+_adapter_registry_load_order_from_file() {
+	local order_file="$1"
+	
+	if [[ ! -f "$order_file" ]]; then
+		echo "0"  # Return count of 0 if file doesn't exist
+		return 0
+	fi
+	
+	# Read file and filter out empty lines
+	local filtered_lines=()
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Trim leading/trailing spaces
+		local trimmed="${line#"${line%%[![:space:]]*}"}"
+		trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+		# Only add non-empty lines
+		[[ -n "$trimmed" ]] && filtered_lines+=("$trimmed")
+	done < "$order_file"
+	
+	# Return count first, then data (consistent with array loading pattern)
+	echo "${#filtered_lines[@]}"
+	printf '%s\n' "${filtered_lines[@]}"
+	return 0
+}
+
+# Helper: Perform reload operations
+_adapter_registry_perform_reload() {
+	local actual_registry_file="$1"
+	local actual_capabilities_file="$2"
+	local actual_order_file="$3"
+	local switching_locations="$4"
+
+	# Clear arrays before loading to ensure clean state from file
+	ADAPTER_REGISTRY=()
+	# Only clear capabilities if we're going to load from file
+	# This prevents losing in-memory state when file doesn't exist
+	if [[ -f "$actual_capabilities_file" ]] || [[ "$switching_locations" == "true" ]]; then
+		ADAPTER_REGISTRY_CAPABILITIES=()
+	fi
+	ADAPTER_REGISTRY_ORDER=()
+
+	# Load arrays from files using return-data pattern (manual population for BATS compatibility)
+	local registry_output
+	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
+	local registry_count
+	registry_count=$(echo "$registry_output" | head -n 1)
+	# Manually populate registry array from output
+	if [[ "$registry_count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			ADAPTER_REGISTRY["$key"]="$value"
+		done < <(echo "$registry_output" | tail -n +2)
+	fi
+
+	local capabilities_loaded=false
+	if [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_output
+		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		local loaded_count
+		loaded_count=$(echo "$capabilities_output" | head -n 1)
+		# Manually populate capabilities array from output
+		if [[ "$loaded_count" -gt 0 ]]; then
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+			done < <(echo "$capabilities_output" | tail -n +2)
+		fi
+		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
+	fi
+
+	_adapter_registry_load_order_array "$actual_order_file"
+	_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching_locations" "$actual_capabilities_file"
+}

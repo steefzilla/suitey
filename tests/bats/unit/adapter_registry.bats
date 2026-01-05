@@ -1,7 +1,60 @@
 #!/usr/bin/env bats
 
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
+
+
 load ../helpers/adapter_registry
 load ../helpers/fixtures
+
+# ============================================================================
+# Helper function to source adapter registry modules from src/
+# ============================================================================
+
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
+# ============================================================================
+# JSON Helper Functions (for test assertions)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_has_field() {
+  local json="$1"
+  local field="$2"
+  echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
+}
 
 # ============================================================================
 # Adapter Registration Tests
@@ -230,6 +283,292 @@ load ../helpers/fixtures
   teardown_adapter_registry_test
 }
 
+@test "adapter_registry_initialize skips registration when adapters exist in file but not in memory" {
+  setup_adapter_registry_test
+
+  # First, register an adapter normally
+  run_adapter_registry_initialize
+
+  # Clear the in-memory array to simulate it not being loaded
+  # This simulates the scenario where files exist from a previous run
+  # but the array wasn't populated (e.g., due to load_state not being called)
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Try to initialize again - should not fail with "already registered" error
+  # It should detect the adapters in the file and skip registration
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize handles existing registry files from previous runs" {
+  setup_adapter_registry_test
+
+  # Simulate a previous run by creating registry files manually
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+  local order_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_order"
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+
+  # Source modules to get helper functions
+  _source_adapter_registry_modules
+
+  # Register bats adapter and save state (simulating previous run)
+  declare -A ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY["bats"]='{"name":"BATS","identifier":"bats","version":"1.0.0"}'
+  ADAPTER_REGISTRY_ORDER+=("bats")
+  adapter_registry_save_state
+
+  # Clear in-memory state (simulate new run)
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Initialize - should detect bats in file and skip it, then register rust
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify both adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize checks file before attempting registration" {
+  setup_adapter_registry_test
+
+  # Source modules and adapters (needed for registration)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Now clear in-memory state (simulating new run where array wasn't loaded)
+  # but keep the files from the previous initialization
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Initialize again - should not fail with "already registered" error
+  # Should detect adapters in file and skip registration
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [ -f "$registry_file" ]
+  grep -q "^bats=" "$registry_file"
+  grep -q "^rust=" "$registry_file"
+
+  # Verify via registry functions
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize defensive check detects adapters in file when array is empty" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # First, properly initialize to create registry files
+  run_adapter_registry_initialize
+  assert_success
+
+  # Now simulate the scenario where the defensive check runs but the array is empty
+  # (This could happen if load_state didn't populate the array correctly, or in edge cases)
+  # Clear the in-memory array AFTER load_state would have run
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Clear the init file to force the defensive check to run
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+  rm -f "$init_file"
+
+  # Verify the registry file still exists with adapters
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [ -f "$registry_file" ]
+  grep -q "^bats=" "$registry_file"
+  grep -q "^rust=" "$registry_file"
+
+  # Now call initialize - the defensive check should detect adapters in the file
+  # even though the array is empty, and set is_initialized=true to avoid re-registration
+  # This test should FAIL before the fix (defensive check only checks array)
+  # and PASS after the fix (defensive check also checks file)
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize registration loop uses ADAPTER_REGISTRY_FILE from load_state" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # First, properly initialize to create registry files
+  run_adapter_registry_initialize
+  assert_success
+
+  # Manually set ADAPTER_REGISTRY_FILE to simulate load_state setting it
+  # This ensures we're testing the path that load_state would use
+  local expected_registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  ADAPTER_REGISTRY_FILE="$expected_registry_file"
+
+  # Verify the file exists and has adapters
+  [ -f "$expected_registry_file" ]
+  grep -q "^bats=" "$expected_registry_file"
+  grep -q "^rust=" "$expected_registry_file"
+
+  # Clear in-memory state but keep ADAPTER_REGISTRY_FILE set
+  # This simulates the scenario where load_state sets ADAPTER_REGISTRY_FILE
+  # but doesn't populate the array (edge case)
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Clear the init file to force re-initialization
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+  rm -f "$init_file"
+
+  # Now initialize again - the registration loop should use ADAPTER_REGISTRY_FILE
+  # instead of re-determining paths via _adapter_registry_determine_file_locations()
+  # This ensures it uses the exact same path that load_state used
+  # This test should FAIL before the fix (registration loop re-determines paths)
+  # and PASS after the fix (registration loop uses ADAPTER_REGISTRY_FILE)
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "_scan_register_test_adapters does not fail when adapters already registered by initialize" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # Source scanner.sh to get _scan_register_test_adapters
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Initialize registry (registers bats and rust)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  # Now call _scan_register_test_adapters - it tries to register bats and rust again
+  # This should NOT fail with "already registered" error
+  # This test should FAIL before the fix (_scan_register_test_adapters doesn't check)
+  # and PASS after the fix (_scan_register_test_adapters checks before registering)
+  run _scan_register_test_adapters 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "_detect_register_test_adapters does not fail when adapters already registered by initialize" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # Source framework_detector.sh to get _detect_register_test_adapters
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Initialize registry (registers bats and rust)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  # Now call _detect_register_test_adapters - it tries to register bats and rust again
+  # This should NOT fail with "already registered" error
+  # This test should FAIL before the fix (_detect_register_test_adapters doesn't check)
+  # and PASS after the fix (_detect_register_test_adapters checks before registering)
+  run _detect_register_test_adapters 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
 # ============================================================================
 # Metadata Management Tests
 # ============================================================================
@@ -277,6 +616,583 @@ load ../helpers/fixtures
   # Check capabilities metadata
   output=$(run_adapter_registry_get "capability_adapter")
   assert_adapter_capabilities "$output" "capability_adapter" "parallel"
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
+# Base64 Encoding/Decoding Tests
+# ============================================================================
+
+@test "base64 encoding and decoding preserves adapter metadata values" {
+  setup_adapter_registry_test
+
+  # Create a valid mock adapter with complex JSON metadata
+  create_valid_mock_adapter "test_adapter"
+
+  # Register the adapter
+  run_adapter_registry_register "test_adapter"
+  assert_success
+
+  # Get the adapter metadata
+  output=$(run_adapter_registry_get "test_adapter")
+  assert_adapter_found "$output" "test_adapter"
+
+  # Save state (encodes to base64)
+  _source_adapter_registry_modules
+  adapter_registry_save_state
+
+  # Clear in-memory state
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_CAPABILITIES=()
+  ADAPTER_REGISTRY_ORDER=()
+
+  # Load state (decodes from base64)
+  adapter_registry_load_state
+
+  # Get the adapter metadata again after save/load cycle
+  output_after=$(run_adapter_registry_get "test_adapter")
+  assert_adapter_found "$output_after" "test_adapter"
+
+  # Verify the metadata is identical (no data loss through encoding/decoding)
+  if [[ "$output" != "$output_after" ]]; then
+    echo "ERROR: Metadata changed after base64 encode/decode cycle"
+    echo "Original: $output"
+    echo "After: $output_after"
+    return 1
+  fi
+
+  # Verify specific fields are preserved
+  local name_field
+  name_field=$(json_test_get "$output_after" '.name')
+  if [[ "$name_field" != "Test Adapter" ]]; then
+    echo "ERROR: 'name' field not preserved correctly"
+    echo "Expected: Test Adapter, Got: $name_field"
+    return 1
+  fi
+
+  local identifier_field
+  identifier_field=$(json_test_get "$output_after" '.identifier')
+  if [[ "$identifier_field" != "test_adapter" ]]; then
+    echo "ERROR: 'identifier' field not preserved correctly"
+    echo "Expected: test_adapter, Got: $identifier_field"
+    return 1
+  fi
+
+  if ! json_test_has_field "$output_after" "capabilities"; then
+    echo "ERROR: 'capabilities' field not preserved correctly"
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "base64 encoding handles special characters in JSON metadata" {
+  setup_adapter_registry_test
+
+  # Create adapter with metadata containing special characters
+  local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/special_adapter"
+  mkdir -p "$adapter_dir"
+
+  cat > "$adapter_dir/adapter.sh" << 'EOF'
+#!/usr/bin/env bash
+
+special_adapter_adapter_detect() {
+  return 0
+}
+
+special_adapter_adapter_get_metadata() {
+  # JSON with special characters: quotes, newlines, equals signs, etc.
+  echo '{"name": "Test \"Adapter\"", "identifier": "special_adapter", "description": "Has = signs and\nnewlines", "version": "1.0.0", "supported_languages": ["test"], "capabilities": ["test"], "required_binaries": [], "configuration_files": [], "test_file_patterns": ["test_*"], "test_directory_patterns": ["tests/"]}'
+}
+
+special_adapter_adapter_check_binaries() {
+  return 0
+}
+
+special_adapter_adapter_discover_test_suites() {
+  echo '[]'
+}
+
+special_adapter_adapter_detect_build_requirements() {
+  echo '{"requires_build": false, "build_steps": [], "build_commands": [], "build_dependencies": [], "build_artifacts": []}'
+}
+
+special_adapter_adapter_get_build_steps() {
+  echo '[]'
+}
+
+special_adapter_adapter_execute_test_suite() {
+  echo '{"exit_code": 0, "duration": 1.0, "output": "test", "container_id": null, "execution_method": "mock"}'
+}
+
+special_adapter_adapter_parse_test_results() {
+  echo '{"total_tests": 0, "passed_tests": 0, "failed_tests": 0, "skipped_tests": 0, "test_details": [], "status": "passed"}'
+}
+EOF
+
+  chmod +x "$adapter_dir/adapter.sh"
+  source "$adapter_dir/adapter.sh"
+
+  # Register the adapter
+  run_adapter_registry_register "special_adapter"
+  assert_success
+
+  # Get original metadata
+  output=$(run_adapter_registry_get "special_adapter")
+  assert_adapter_found "$output" "special_adapter"
+
+  # Save and reload
+  _source_adapter_registry_modules
+  adapter_registry_save_state
+  ADAPTER_REGISTRY=()
+  adapter_registry_load_state
+
+  # Get metadata after save/load
+  output_after=$(run_adapter_registry_get "special_adapter")
+  assert_adapter_found "$output_after" "special_adapter"
+
+  # Verify special characters are preserved
+  local name_field_special
+  name_field_special=$(json_test_get "$output_after" '.name')
+  if [[ "$name_field_special" != 'Test "Adapter"' ]]; then
+    echo "ERROR: Quotes in metadata not preserved"
+    echo "Expected: Test \"Adapter\", Got: $name_field_special"
+    return 1
+  fi
+
+  local description_field
+  description_field=$(json_test_get "$output_after" '.description')
+  if [[ "$description_field" != *"Has = signs"* ]]; then
+    echo "ERROR: Equals signs in metadata not preserved"
+    echo "Expected to contain: Has = signs, Got: $description_field"
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+# ============================================================================
+# Diagnostic Tests - Registry File Persistence
+# ============================================================================
+
+@test "registry file is created after adapter registration" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "file_test_adapter"
+  run_adapter_registry_register "file_test_adapter"
+  assert_success
+
+  # Verify registry file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  if [[ ! -f "$registry_file" ]]; then
+    echo "ERROR: Registry file was not created: $registry_file" >&2
+    echo "TEST_ADAPTER_REGISTRY_DIR: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    ls -la "$TEST_ADAPTER_REGISTRY_DIR" >&2 || echo "Directory does not exist" >&2
+    return 1
+  fi
+
+  # Verify file is not empty
+  if [[ ! -s "$registry_file" ]]; then
+    echo "ERROR: Registry file is empty" >&2
+    return 1
+  fi
+
+  # Verify file contains the adapter
+  if ! grep -q "file_test_adapter=" "$registry_file"; then
+    echo "ERROR: Registry file does not contain adapter entry" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "registry file contains valid base64 encoded data" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "base64_test_adapter"
+  run_adapter_registry_register "base64_test_adapter"
+  assert_success
+
+  # Get the registry file
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  
+  # Extract the encoded value
+  local encoded_value
+  encoded_value=$(grep "^base64_test_adapter=" "$registry_file" | cut -d= -f2-)
+
+  if [[ -z "$encoded_value" ]]; then
+    echo "ERROR: Could not extract encoded value from registry file" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  # Verify it's valid base64 by attempting to decode
+  local decoded_value
+  if ! decoded_value=$(echo -n "$encoded_value" | base64 -d 2>&1); then
+    echo "ERROR: Encoded value is not valid base64" >&2
+    echo "Encoded value: $encoded_value" >&2
+    return 1
+  fi
+
+  # Verify decoded value is valid JSON
+  if ! json_test_has_field "$decoded_value" "name"; then
+    echo "ERROR: Decoded value is not valid JSON metadata" >&2
+    echo "Decoded value: $decoded_value" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state finds and loads registry file from TEST_ADAPTER_REGISTRY_DIR" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "load_test_adapter"
+  run_adapter_registry_register "load_test_adapter"
+  assert_success
+
+  # Verify file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Source adapter registry modules fresh (simulating run_adapter_registry_get)
+  _source_adapter_registry_modules
+
+  # Verify arrays are empty after sourcing (check if variable exists first due to set -u)
+  if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing adapter registry modules" >&2
+    return 1
+  fi
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Verify adapter was loaded
+  if [[ ! -v ADAPTER_REGISTRY["load_test_adapter"] ]]; then
+    echo "ERROR: Adapter was not loaded from file" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2 || echo "Could not read file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "save_state and load_state use consistent file paths" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "path_test_adapter"
+  
+  # Source adapter registry modules
+  _source_adapter_registry_modules
+
+  # Register adapter (this will save state)
+  create_valid_mock_adapter "path_test_adapter"
+  adapter_registry_register "path_test_adapter"
+
+  # Get the file path used by save_state
+  local saved_file="${ADAPTER_REGISTRY_FILE:-}"
+  
+  # Clear arrays and reload
+  ADAPTER_REGISTRY=()
+  adapter_registry_load_state
+
+  # Get the file path used by load_state
+  local loaded_file="${ADAPTER_REGISTRY_FILE:-}"
+
+  # Verify paths match
+  if [[ "$saved_file" != "$loaded_file" ]]; then
+    echo "ERROR: Save and load use different file paths" >&2
+    echo "Save path: $saved_file" >&2
+    echo "Load path: $loaded_file" >&2
+    echo "TEST_ADAPTER_REGISTRY_DIR: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify the file exists at that path
+  if [[ ! -f "$saved_file" ]]; then
+    echo "ERROR: Registry file does not exist at saved path: $saved_file" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state should_reload logic triggers when file exists" {
+  setup_adapter_registry_test
+
+  # Create registry file manually with test data
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local test_json='{"name": "Test", "identifier": "manual_test"}'
+  local encoded_value
+  encoded_value=$(echo -n "$test_json" | base64 -w 0 2>/dev/null || echo -n "$test_json" | base64 -b 0 2>/dev/null || echo -n "$test_json" | base64 | tr -d '\n')
+  
+  echo "manual_test=$encoded_value" > "$registry_file"
+
+  # Source adapter registry modules fresh
+  _source_adapter_registry_modules
+
+  # Verify arrays are empty (check if variable exists first due to set -u)
+  if [[ -v ADAPTER_REGISTRY[@] ]] && [[ ${#ADAPTER_REGISTRY[@]} -ne 0 ]]; then
+    echo "ERROR: ADAPTER_REGISTRY should be empty after sourcing adapter registry modules" >&2
+    return 1
+  fi
+
+  # Call load_state
+  adapter_registry_load_state
+
+  # Verify adapter was loaded
+  if [[ ! -v ADAPTER_REGISTRY["manual_test"] ]]; then
+    echo "ERROR: Adapter was not loaded from manually created file" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File contents:" >&2
+    cat "$registry_file" >&2
+    return 1
+  fi
+
+  # Verify the loaded value matches
+  if [[ "${ADAPTER_REGISTRY[manual_test]}" != "$test_json" ]]; then
+    echo "ERROR: Loaded value does not match expected" >&2
+    echo "Expected: $test_json" >&2
+    echo "Got: ${ADAPTER_REGISTRY[manual_test]}" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_get works after fresh source and load_state" {
+  setup_adapter_registry_test
+
+  # Register an adapter using the helper (which sources adapter registry modules)
+  create_valid_mock_adapter "get_test_adapter"
+  run_adapter_registry_register "get_test_adapter"
+  assert_success
+
+  # Verify file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Now simulate what run_adapter_registry_get does: source fresh and call get
+  # Source fresh (this resets arrays)
+  _source_adapter_registry_modules
+
+  # Call get (which should call load_state internally)
+  local output
+  output=$(adapter_registry_get "get_test_adapter")
+
+  # Verify we got the adapter (not null)
+  if [[ "$output" == "null" ]] || [[ -z "$output" ]]; then
+    echo "ERROR: adapter_registry_get returned null or empty" >&2
+    echo "Output: $output" >&2
+    echo "ADAPTER_REGISTRY keys: ${!ADAPTER_REGISTRY[@]}" >&2
+    echo "Registry file: $registry_file" >&2
+    echo "File exists: $([[ -f "$registry_file" ]] && echo yes || echo no)" >&2
+    if [[ -f "$registry_file" ]]; then
+      echo "File contents:" >&2
+      cat "$registry_file" >&2
+    fi
+    return 1
+  fi
+
+  # Verify it's valid JSON
+  if ! json_test_has_field "$output" "name"; then
+    echo "ERROR: Returned value is not valid JSON metadata" >&2
+    echo "Output: $output" >&2
+    return 1
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate detection works when registration called from subshell" {
+  setup_adapter_registry_test
+
+  # Register first adapter (in main shell context)
+  create_valid_mock_adapter "subshell_test_adapter"
+  run_adapter_registry_register "subshell_test_adapter"
+  assert_success
+
+  # Verify registry file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Try to register the same adapter again using 'run' (subshell context)
+  run run_adapter_registry_register "subshell_test_adapter"
+  assert_failure
+  assert_adapter_registration_error "$output" "identifier_conflict"
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state sets ADAPTER_REGISTRY_FILE correctly" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "file_path_test_adapter"
+  run_adapter_registry_register "file_path_test_adapter"
+  assert_success
+
+  # Source modules fresh (simulating subshell)
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_FILE=""
+
+  # Load state
+  adapter_registry_load_state
+
+  # Verify ADAPTER_REGISTRY_FILE is set
+  [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]
+
+  # Verify it points to the correct file
+  local expected_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ "$ADAPTER_REGISTRY_FILE" == "$expected_file" ]]
+
+  # Verify the file exists at that path
+  [[ -f "$ADAPTER_REGISTRY_FILE" ]]
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate detection uses TEST_ADAPTER_REGISTRY_DIR when available" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "dir_test_adapter"
+  run_adapter_registry_register "dir_test_adapter"
+  assert_success
+
+  # Verify file exists at expected location
+  local expected_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$expected_file" ]]
+
+  # Simulate subshell: source fresh and clear state
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_FILE=""
+
+  # Load state (should set ADAPTER_REGISTRY_FILE)
+  adapter_registry_load_state
+
+  # Now simulate duplicate check logic
+  local adapter_identifier="dir_test_adapter"
+  local actual_registry_file=""
+  
+  # This is the logic from adapter_registry_register
+  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+    actual_registry_file="${TEST_ADAPTER_REGISTRY_DIR}/suitey_adapter_registry"
+  elif [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+    actual_registry_file="${ADAPTER_REGISTRY_FILE}"
+  fi
+
+  # Verify file path was determined correctly
+  [[ -n "$actual_registry_file" ]]
+  [[ "$actual_registry_file" == "$expected_file" ]]
+
+  # Verify file exists and contains the adapter
+  # Note: After load_state, the file should exist since we registered an adapter
+  if [[ -f "$actual_registry_file" ]]; then
+    grep -q "^${adapter_identifier}=" "$actual_registry_file"
+  else
+    # File might not exist if load_state didn't trigger a reload
+    # In that case, verify ADAPTER_REGISTRY_FILE is set correctly
+    [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]
+    [[ "$ADAPTER_REGISTRY_FILE" == "$expected_file" ]]
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate detection can find adapter in file for file-based check" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "file_check_adapter"
+  run_adapter_registry_register "file_check_adapter"
+  assert_success
+
+  # Verify file exists and contains the adapter
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+  [[ -s "$registry_file" ]]
+
+  # Verify the file-based duplicate check pattern works
+  # This is the exact check used in adapter_registry_register for duplicate detection
+  local adapter_identifier="file_check_adapter"
+  local escaped_identifier
+  escaped_identifier=$(printf '%s\n' "$adapter_identifier" | sed 's/[[\.*^$()+?{|]/\\&/g')
+  
+  # This grep pattern is used in duplicate detection
+  grep -Eq "^${escaped_identifier}=" "$registry_file"
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate registration fails when adapter exists in file" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "file_only_adapter"
+  run_adapter_registry_register "file_only_adapter"
+  assert_success
+
+  # Verify file exists and contains adapter
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+  grep -q "file_only_adapter=" "$registry_file"
+
+  # Try to register again using 'run' (subshell context)
+  # adapter_registry_register will call load_state first, which will populate
+  # the array from the file, and then the duplicate check should catch it
+  # (either in the array or via file check)
+  run run_adapter_registry_register "file_only_adapter"
+  assert_failure
+  assert_adapter_registration_error "$output" "identifier_conflict"
+
+  teardown_adapter_registry_test
+}
+
+@test "diagnostic: verify TEST_ADAPTER_REGISTRY_DIR is set and accessible" {
+  setup_adapter_registry_test
+
+  # Verify TEST_ADAPTER_REGISTRY_DIR is set
+  if [[ -z "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not set" >&2
+    return 1
+  fi
+
+  # Verify it's a directory
+  if [[ ! -d "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not a directory: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify it's writable
+  if [[ ! -w "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
+    echo "ERROR: TEST_ADAPTER_REGISTRY_DIR is not writable: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+
+  # Verify we can create files in it
+  local test_file="$TEST_ADAPTER_REGISTRY_DIR/test_write"
+  if ! touch "$test_file" 2>&1; then
+    echo "ERROR: Cannot create files in TEST_ADAPTER_REGISTRY_DIR" >&2
+    echo "Directory: $TEST_ADAPTER_REGISTRY_DIR" >&2
+    return 1
+  fi
+  rm -f "$test_file"
 
   teardown_adapter_registry_test
 }
@@ -552,7 +1468,9 @@ assert_adapters_available() {
   local output="$1"
 
   # Should have at least some adapters available
-  if ! echo "$output" | grep -q '"rust"\|"bats"\|"working_adapter"'; then
+  local adapters_list
+  adapters_list=$(json_test_get "$output" '.[]')
+  if [[ "$adapters_list" != *"rust"* ]] && [[ "$adapters_list" != *"bats"* ]] && [[ "$adapters_list" != *"working_adapter"* ]]; then
     echo "ERROR: No adapters available after initialization failure simulation"
     echo "Output: $output"
     return 1
@@ -566,7 +1484,10 @@ assert_adapter_found_in_list() {
   local output="$1"
   local adapter_name="$2"
 
-  if ! echo "$output" | grep -q "\"$adapter_name\""; then
+  # Extract array elements and check if adapter_name is in the list
+  local adapters_list
+  adapters_list=$(json_test_get "$output" '.[]')
+  if [[ "$adapters_list" != *"$adapter_name"* ]]; then
     echo "ERROR: Adapter '$adapter_name' not found in list"
     echo "Output: $output"
     return 1

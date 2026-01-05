@@ -99,7 +99,13 @@ The core functionality follows a clear workflow: **Framework Detection** → **T
      - Package manager build scripts (`package.json` scripts, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, etc.)
      - Source code patterns indicating compilation needs (TypeScript, compiled languages, etc.)
    - Automatically executes build steps in containerized environments before running tests
-   - Build artifacts are preserved and made available to test execution containers
+   - Build process:
+     1. Uses base images with mounted volumes for building
+     2. Starts build containers with multiple CPU cores when available
+     3. Installs dependencies in build containers
+     4. Builds with multiple cores when available
+     5. On success, creates Docker images containing build artifacts, source code, and test suites
+     6. Test containers use these pre-built images (no volume mounting needed)
    - Build steps run in parallel when multiple independent builds are detected
    - Build failures are reported clearly and prevent test execution
 
@@ -278,7 +284,13 @@ The execution follows a sequential workflow orchestrated by Project Scanner:
 
 3. **Build System Detection Phase**: Project Scanner uses framework adapters to determine if building is required before testing. Each adapter implements build detection logic and specifies build commands if needed. Build requirements are determined per framework.
 
-4. **Build Phase** (if needed): Build steps execute in Docker containers to ensure consistent, isolated environments. Build artifacts are stored in volumes and made available to test containers. Build steps can run in parallel when multiple independent builds are detected.
+4. **Build Phase** (if needed): Build steps execute in Docker containers to ensure consistent, isolated environments. The build process:
+   - Uses base images with mounted volumes for building
+   - Allocates multiple CPU cores to build containers when available
+   - Installs dependencies and builds the project
+   - On successful build, creates Docker images containing build artifacts, source code, and test suites
+   - Test containers use these pre-built images (self-contained, no volume dependencies)
+   - Build steps can run in parallel when multiple independent builds are detected
 
 5. **Execution Phase**: Test suites run in Docker containers using their native test runners. Each framework adapter determines the execution method (Docker container, docker-compose orchestration, etc.) and parses output to extract structured results.
 
@@ -424,8 +436,13 @@ Reports are generated as standalone HTML files with embedded CSS and JavaScript 
    - For each framework that requires building:
      - Determine build steps using framework adapter
      - Launch build containers in parallel (when builds are independent)
+     - Allocate multiple CPU cores to build containers when available
      - Track build progress and collect build artifacts
-     - Store build artifacts in shared volumes for test containers
+     - On successful build, create Docker images containing:
+       - Build artifacts (compiled binaries, generated files, etc.)
+       - Source code
+       - Test suites
+     - Generate Dockerfile and docker-compose configuration for test containers
    - Wait for all required builds to complete before proceeding
    - Report build failures immediately and abort test execution
 
@@ -438,7 +455,8 @@ Reports are generated as standalone HTML files with embedded CSS and JavaScript 
    - Launch all test suites in parallel, tracking their container IDs
    - Each suite execution:
      - Records start time
-     - Mounts build artifacts (if available) into test container
+     - Uses pre-built test image (containing artifacts, source, and tests) or base image (if no build required)
+     - Test containers start with everything ready (no volume mounting needed)
      - Executes using framework adapter's execution method (Docker container, docker-compose, etc.)
      - Captures exit code from container
      - Calculates duration

@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Framework Detector tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 # ============================================================================
 # Setup/Teardown Functions
@@ -14,11 +33,10 @@ setup_framework_detector_test() {
 }
 
 # Clean up temporary project directory
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_framework_detector_test() {
-  if [[ -n "${TEST_PROJECT_DIR:-}" ]] && [[ -d "$TEST_PROJECT_DIR" ]]; then
-    rm -rf "$TEST_PROJECT_DIR"
-    unset TEST_PROJECT_DIR
-  fi
+  safe_teardown_framework_detector
 }
 
 # ============================================================================
@@ -410,7 +428,7 @@ assert_confidence_level() {
 
   # This would check the confidence level in the structured output
   # For now, just verify the output contains confidence information
-  if ! echo "$output" | grep -q "confidence\|Confidence"; then
+  if ! echo "$output" | grep -iE -q "confidence"; then
     echo "ERROR: Expected confidence level information in output"
     echo "Output was:"
     echo "$output"

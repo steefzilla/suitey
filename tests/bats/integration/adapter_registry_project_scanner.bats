@@ -1,9 +1,101 @@
 #!/usr/bin/env bats
 
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
+
+
 load ../helpers/adapter_registry
 load ../helpers/project_scanner
 load ../helpers/fixtures
 load ../helpers/framework_detector
+
+# Source all required modules from src/ for integration tests
+_source_integration_modules() {
+  # Find and source json_helpers.sh
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+
+  # Find and source framework_detector.sh
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Find and source scanner.sh
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Find and source adapters
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
+}
+
+_source_integration_modules
+
+# Enable integration test mode for real Docker operations
+export SUITEY_INTEGRATION_TEST=1
 
 # ============================================================================
 # Project Scanner - Adapter Registry Orchestration Tests
@@ -348,9 +440,6 @@ EOF
   cat > "$TEST_PROJECT_DIR/tests/bats/deep/nested/structure/test.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "malformed test" {
-  [ "malformed" = "structure" ]
-}
 EOF
   chmod +x "$TEST_PROJECT_DIR/tests/bats/deep/nested/structure/test.bats"
 
@@ -378,9 +467,6 @@ EOF
   cat > "$TEST_PROJECT_DIR/tests/test.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "bats test" {
-  [ "bats" = "bats" ]
-}
 EOF
   chmod +x "$TEST_PROJECT_DIR/tests/test.bats"
 
@@ -676,13 +762,7 @@ create_complex_project() {
   cat > "$base_dir/tests/bats/complex.bats" << 'EOF'
 #!/usr/bin/env bats
 
-@test "complex test 1" {
-  [ true ]
-}
 
-@test "complex test 2" {
-  [ true ]
-}
 EOF
   chmod +x "$base_dir/tests/bats/complex.bats"
 
@@ -703,22 +783,9 @@ EOF
 run_project_scanner_registry_orchestration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
-  local scanner_script
 
-  # Determine the path to suitey.sh
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source suitey.sh to get access to functions, then call the orchestration function
-  output=$(
-    source "$scanner_script"
-    project_scanner_registry_orchestration "$project_dir" 2>&1 || true
-  )
+  # Modules are already sourced via _source_integration_modules at the top
+  output=$(project_scanner_registry_orchestration "$project_dir" 2>&1 || true)
   echo "$output"
 }
 
@@ -751,7 +818,7 @@ assert_no_test_suites_found_handled() {
   fi
 
   # Should indicate no test suites were discovered
-  if ! echo "$output" | grep -q "No test suites found\|Discovered 0 test suite"; then
+  if ! echo "$output" | grep -E -q "No test suites found|Discovered 0 test suite"; then
     echo "ERROR: Expected indication that no test suites were found"
     echo "Output was: $output"
     return 1
@@ -789,7 +856,7 @@ assert_malformed_project_structure_handled() {
   local output="$1"
 
   # Should still detect frameworks despite unusual structure
-  if ! echo "$output" | grep -q "BATS framework detected\|Discovered.*test suite"; then
+  if ! echo "$output" | grep -E -q "BATS framework detected|Discovered.*test suite"; then
     echo "ERROR: Expected framework detection and test discovery despite malformed structure"
     echo "Output was: $output"
     return 1
@@ -854,7 +921,7 @@ assert_build_requirements_handled() {
 assert_project_scanner_coordinated_framework_detector() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "framework.*detector\|detector.*coordinated\|orchestrated.*framework"; then
+  if ! echo "$output" | grep -E -q "framework.*detector|detector.*coordinated|orchestrated.*framework"; then
     echo "ERROR: Expected Project Scanner to coordinate Framework Detector"
     echo "Output was: $output"
     return 1
@@ -867,7 +934,7 @@ assert_project_scanner_coordinated_framework_detector() {
 assert_project_scanner_coordinated_test_suite_discovery() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "suite.*discovery\|discovery.*coordinated\|orchestrated.*discovery"; then
+  if ! echo "$output" | grep -E -q "suite.*discovery|discovery.*coordinated|orchestrated.*discovery"; then
     echo "ERROR: Expected Project Scanner to coordinate Test Suite Discovery"
     echo "Output was: $output"
     return 1
@@ -880,7 +947,7 @@ assert_project_scanner_coordinated_test_suite_discovery() {
 assert_project_scanner_coordinated_build_detector() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "build.*detector\|detector.*build\|orchestrated.*build"; then
+  if ! echo "$output" | grep -E -q "build.*detector|detector.*build|orchestrated.*build"; then
     echo "ERROR: Expected Project Scanner to coordinate Build System Detector"
     echo "Output was: $output"
     return 1
@@ -896,7 +963,7 @@ assert_results_aggregated_from_registry_components() {
 
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "aggregated.*$adapter\|${adapter}.*aggregated"; then
+    if ! echo "$output" | grep -E -q "aggregated.*$adapter|${adapter}.*aggregated"; then
       echo "ERROR: Expected results to be aggregated from registry component using adapter '$adapter'"
       echo "Output was: $output"
       return 1
@@ -913,7 +980,7 @@ assert_complete_workflow_executed() {
   # Should show all phases: framework detection, test suite discovery, build detection
   local phases=("detection" "discovery" "build")
   for phase in "${phases[@]}"; do
-    if ! echo "$output" | grep -q "$phase.*complete\|complete.*$phase\|workflow.*$phase"; then
+    if ! echo "$output" | grep -E -q "$phase.*complete|complete.*$phase|workflow.*$phase"; then
       echo "ERROR: Expected $phase phase to be completed in workflow"
       echo "Output was: $output"
       return 1
@@ -928,14 +995,14 @@ assert_component_failures_handled_gracefully() {
   local output="$1"
   local failing_adapter="$2"
 
-  if ! echo "$output" | grep -q "failed.*$failing_adapter\|${failing_adapter}.*failed\|handled.*failure"; then
+  if ! echo "$output" | grep -E -q "failed.*$failing_adapter|${failing_adapter}.*failed|handled.*failure"; then
     echo "ERROR: Expected component failure for adapter '$failing_adapter' to be handled gracefully"
     echo "Output was: $output"
     return 1
   fi
 
   # Should not have crashed the entire orchestration
-  if echo "$output" | grep -q "fatal\|crash\|aborted"; then
+  if echo "$output" | grep -E -q "fatal|crash|aborted"; then
     echo "ERROR: Project Scanner should not crash when components fail"
     echo "Output was: $output"
     return 1
@@ -949,7 +1016,7 @@ assert_working_components_processed() {
   local output="$1"
   local working_adapter="$2"
 
-  if ! echo "$output" | grep -q "processed.*$working_adapter\|${working_adapter}.*processed\|success.*$working_adapter"; then
+  if ! echo "$output" | grep -E -q "processed.*$working_adapter|${working_adapter}.*processed|success.*$working_adapter"; then
     echo "ERROR: Expected working component with adapter '$working_adapter' to be processed"
     echo "Output was: $output"
     return 1
@@ -963,7 +1030,7 @@ assert_correct_execution_order() {
   local output="$1"
 
   # Should show Framework Detection → Test Suite Discovery → Build Detection order
-  if ! echo "$output" | grep -q "detection.*then.*discovery\|discovery.*after.*detection\|order.*maintained"; then
+  if ! echo "$output" | grep -E -q "detection.*then.*discovery|discovery.*after.*detection|order.*maintained"; then
     echo "ERROR: Expected correct execution order to be maintained"
     echo "Output was: $output"
     return 1
@@ -977,8 +1044,24 @@ assert_registry_data_flow() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "flow.*$adapter_identifier\|${adapter_identifier}.*flow\|passed.*$adapter_identifier"; then
-    echo "ERROR: Expected registry data to flow correctly for adapter '$adapter_identifier'"
+  # Check that adapter was processed through all phases:
+  # 1. Detection phase - adapter should be detected and processed
+  if ! echo "$output" | grep -E -q "(detected|processed|registry detect).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be detected in detection phase"
+    echo "Output was: $output"
+    return 1
+  fi
+
+  # 2. Discovery phase - adapter should be used for test suite discovery
+  if ! echo "$output" | grep -E -q "(discover_test_suites|registry.*discover).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be used in discovery phase"
+    echo "Output was: $output"
+    return 1
+  fi
+
+  # 3. Build detection phase - adapter should be used for build requirements detection
+  if ! echo "$output" | grep -E -q "(detect_build_requirements|registry.*detect_build).*$adapter_identifier"; then
+    echo "ERROR: Expected adapter '$adapter_identifier' to be used in build detection phase"
     echo "Output was: $output"
     return 1
   fi
@@ -994,7 +1077,7 @@ assert_all_adapter_operations_via_registry() {
   # Should show all adapter methods called via registry
   local operations=("detect" "check_binaries" "discover_test_suites" "detect_build_requirements")
   for operation in "${operations[@]}"; do
-    if ! echo "$output" | grep -q "$operation.*$adapter_identifier\|${adapter_identifier}.*$operation\|registry.*$operation"; then
+    if ! echo "$output" | grep -E -q "$operation.*$adapter_identifier|${adapter_identifier}.*$operation|registry.*$operation"; then
       echo "ERROR: Expected adapter operation '$operation' to be performed via registry for '$adapter_identifier'"
       echo "Output was: $output"
       return 1
@@ -1012,7 +1095,7 @@ assert_component_registry_integration_validated() {
   local expected_adapters="$2"
 
   # Should show validation of component-registry integration
-  if ! echo "$output" | grep -q "validated\|integration.*verified\|registry.*integration"; then
+  if ! echo "$output" | grep -E -q "validated|integration.*verified|registry.*integration"; then
     echo "ERROR: Expected component-registry integration to be validated"
     echo "Output was: $output"
     return 1
@@ -1021,7 +1104,7 @@ assert_component_registry_integration_validated() {
   # Should include specified adapters in validation
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "validate.*$adapter\|${adapter}.*validate"; then
+    if ! echo "$output" | grep -E -q "validate.*$adapter|${adapter}.*validate"; then
       echo "ERROR: Expected adapter '$adapter' to be included in integration validation"
       echo "Output was: $output"
       return 1
@@ -1037,7 +1120,7 @@ assert_unified_results_from_components() {
   local expected_adapters="$2"
 
   # Should show unified results from all components
-  if ! echo "$output" | grep -q "unified\|combined\|aggregated.*results"; then
+  if ! echo "$output" | grep -E -q "unified|combined|aggregated.*results"; then
     echo "ERROR: Expected unified results from registry-based components"
     echo "Output was: $output"
     return 1
@@ -1046,7 +1129,7 @@ assert_unified_results_from_components() {
   # Should include results from specified adapters
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "results.*$adapter\|${adapter}.*results"; then
+    if ! echo "$output" | grep -E -q "results.*$adapter|${adapter}.*results"; then
       echo "ERROR: Expected results from adapter '$adapter' in unified output"
       echo "Output was: $output"
       return 1
@@ -1054,4 +1137,203 @@ assert_unified_results_from_components() {
   done
 
   return 0
+}
+
+# ============================================================================
+# Build Manager Interface Integration Tests
+# ============================================================================
+
+@test "Adapter Registry calls get_build_steps with correct interface" {
+  setup_adapter_registry_test
+
+  # Initialize registry with built-in adapters
+  run_adapter_registry_initialize
+
+  # Create a mock adapter that requires building
+  create_valid_mock_adapter "build_adapter"
+  run_adapter_registry_register "build_adapter"
+  assert_success
+
+  # Call get_build_steps through registry
+  # Modules are already sourced via _source_integration_modules at the top
+
+  # Create temporary project
+  local temp_project=$(mktemp -d)
+  local build_requirements='{"requires_build": true, "build_steps": ["compile"], "build_commands": ["echo build"], "build_dependencies": [], "build_artifacts": ["target/"]}'
+  
+  # Call get_build_steps
+  local build_steps
+  build_steps=$(build_adapter_adapter_get_build_steps "$temp_project" "$build_requirements")
+  
+  # Should contain new interface fields
+  assert_build_steps_has_install_dependencies "$build_steps"
+  assert_build_steps_has_cpu_cores "$build_steps"
+  
+  rm -rf "$temp_project"
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry handles new get_build_steps fields correctly" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter with build requirements
+  create_valid_mock_adapter "build_test_adapter"
+  run_adapter_registry_register "build_test_adapter"
+  assert_success
+  
+  # Call get_build_steps
+  # Modules are already sourced via _source_integration_modules at the top
+  
+  local temp_project=$(mktemp -d)
+  local build_requirements='{"requires_build": true}'
+  
+  local build_steps
+  build_steps=$(build_test_adapter_adapter_get_build_steps "$temp_project" "$build_requirements")
+  
+  # Should be valid JSON with all required fields
+  assert_build_steps_valid_json "$build_steps"
+  
+  rm -rf "$temp_project"
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry passes test_image to execute_test_suite" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter
+  create_valid_mock_adapter "image_test_adapter"
+  run_adapter_registry_register "image_test_adapter"
+  assert_success
+  
+  # Call execute_test_suite with test_image
+  # Modules are already sourced via _source_integration_modules at the top
+  
+  local test_suite='{"name": "test_suite", "framework": "image_test_adapter", "test_files": ["test.txt"], "metadata": {}, "execution_config": {}}'
+  local test_image="test_image:latest"
+  local execution_config='{"timeout": 30}'
+  
+  local result
+  result=$(image_test_adapter_adapter_execute_test_suite "$test_suite" "$test_image" "$execution_config")
+  
+  # Should contain test_image in result
+  assert_execution_result_has_test_image "$result"
+  
+  # Should NOT contain build_artifacts
+  assert_execution_result_no_build_artifacts "$result"
+  
+  teardown_adapter_registry_test
+}
+
+@test "Adapter Registry handles test_image parameter for no-build frameworks" {
+  setup_adapter_registry_test
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a mock adapter (no build required)
+  create_valid_mock_adapter "no_build_adapter"
+  run_adapter_registry_register "no_build_adapter"
+  assert_success
+  
+  # Call execute_test_suite with empty test_image
+  # Modules are already sourced via _source_integration_modules at the top
+  
+  local test_suite='{"name": "test_suite", "framework": "no_build_adapter", "test_files": ["test.txt"], "metadata": {}, "execution_config": {}}'
+  local test_image=""  # Empty for no-build frameworks
+  local execution_config='{"timeout": 30}'
+  
+  local result
+  result=$(no_build_adapter_adapter_execute_test_suite "$test_suite" "$test_image" "$execution_config")
+  
+  # Should handle empty test_image gracefully
+  assert_execution_succeeded "$result"
+  assert_execution_result_has_test_image "$result"
+  
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner handles build requirements with new interface" {
+  setup_adapter_registry_test
+  setup_test_project
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create a project that requires building
+  create_rust_project "$TEST_PROJECT_DIR"
+  
+  # Run Project Scanner (should handle build requirements)
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+  
+  # Should handle build requirements without errors
+  assert_project_scanner_handles_build_requirements "$output"
+  
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner passes test_image to adapters" {
+  setup_adapter_registry_test
+  setup_test_project
+
+  # Initialize registry
+  run_adapter_registry_initialize
+
+  # Create a project with test suites
+  create_bats_project "$TEST_PROJECT_DIR"
+
+  # Run Project Scanner (should pass test_image to adapters)
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+
+  # Should pass test_image parameter correctly
+  assert_project_scanner_passes_test_image "$output"
+
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner integrates build steps with new interface" {
+  setup_adapter_registry_test
+  setup_test_project
+
+  # Initialize registry
+  run_adapter_registry_initialize
+
+  # Create a project requiring building
+  create_rust_project "$TEST_PROJECT_DIR"
+
+  # Run Project Scanner
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+
+  # Should integrate build steps with new interface
+  assert_project_scanner_integrates_build_steps "$output"
+
+  teardown_test_project
+  teardown_adapter_registry_test
+}
+
+@test "Project Scanner validates adapter interface compatibility" {
+  setup_adapter_registry_test
+  setup_test_project
+  
+  # Initialize registry
+  run_adapter_registry_initialize
+  
+  # Create project with mixed frameworks
+  create_mixed_project "$TEST_PROJECT_DIR"
+  
+  # Run Project Scanner
+  output=$(run_project_scanner_registry_orchestration "$TEST_PROJECT_DIR")
+  
+  # Should validate all adapter interfaces are compatible
+  assert_project_scanner_validates_interfaces "$output"
+  
+  teardown_test_project
+  teardown_adapter_registry_test
 }

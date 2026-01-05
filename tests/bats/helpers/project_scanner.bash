@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # Helper functions for Project Scanner tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
 
 # Create a temporary project directory
 setup_test_project() {
@@ -10,11 +29,10 @@ setup_test_project() {
 }
 
 # Clean up temporary project directory
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_test_project() {
-  if [[ -n "${TEST_PROJECT_DIR:-}" ]] && [[ -d "$TEST_PROJECT_DIR" ]]; then
-    rm -rf "$TEST_PROJECT_DIR"
-    unset TEST_PROJECT_DIR
-  fi
+  safe_teardown_framework_detector
 }
 
 # Create a .bats test file with proper structure
@@ -78,23 +96,92 @@ test_suite_discovery_with_registry() {
   output_results
 }
 
+# Source all required modules from src/ for project scanner tests
+_source_project_scanner_modules() {
+  # Find and source json_helpers.sh
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+
+  # Find and source framework_detector.sh
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Find and source scanner.sh
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Find and source adapters
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
+}
+
 # Run test suite discovery with registry integration
 run_test_suite_discovery_registry_integration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
-  local scanner_script
 
-  # Determine the path to suitey.sh
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source suitey.sh to make functions available
-  source "$scanner_script"
+  # Source modules from src/
+  _source_project_scanner_modules
 
   # Run test suite discovery and capture both stdout and stderr
   output=$(test_suite_discovery_with_registry "$project_dir" 2>&1) || true
@@ -139,11 +226,6 @@ restore_path() {
 # ============================================================================
 # Rust-Specific Helper Functions
 # ============================================================================
-
-# Check if cargo binary is available
-is_cargo_available() {
-  command -v cargo >/dev/null 2>&1
-}
 
 # Count the number of #[test] annotations in a Rust test file
 count_rust_tests() {

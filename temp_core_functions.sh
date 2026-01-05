@@ -1,0 +1,26 @@
+build_manager_get_cpu_cores() {
+	local cores
+build_manager_orchestrate() {
+	local build_requirements_json="$1"
+build_manager_orchestrate() {
+	local build_requirements_json="$1"
+build_manager_analyze_dependencies() {
+	local build_requirements_json="$1"
+build_manager_analyze_dependencies_array() {
+	local -n build_reqs_array_ref="$1"
+build_manager_create_test_image() {
+	local build_requirements_json="$1"
+build_manager_generate_dockerfile() {
+	local build_req_json="$1"
+build_manager_build_test_image() {
+	local dockerfile_path="$1"
+build_manager_track_status() {
+	local build_requirements_json="$1"
+build_manager_update_build_status() {
+	local framework="$1"
+build_manager_handle_error() {
+	local error_type="$1"
+build_manager_handle_signal() {
+	local signal="$1"
+build_manager_validate_requirements() {
+	local build_requirements_json="$1"

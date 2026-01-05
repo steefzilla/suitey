@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Test fixture generators for Project Scanner tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
 
 # Create a complete BATS project structure
 create_bats_project() {
@@ -676,3 +679,8 @@ EOF
   echo "$file_path"
 }
 
+
+# Create a mixed framework project (alias for multi-framework)
+create_mixed_project() {
+  create_multi_framework_project "$@"
+}

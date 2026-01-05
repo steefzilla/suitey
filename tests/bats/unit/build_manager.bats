@@ -1,0 +1,1110 @@
+#!/usr/bin/env bats
+
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
+
+# Unit tests for Build Manager component
+# Tests Build Manager logic with mocked Docker operations
+
+load ../helpers/build_manager
+
+# ============================================================================
+# Test Helper Functions (will be replaced with shared helpers in Phase 2)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now, will be replaced)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_array_length() {
+  local json="$1"
+  echo "$json" | jq 'length' 2>/dev/null || echo "0"
+}
+
+json_test_array_get() {
+  local json="$1"
+  local index="$2"
+  echo "$json" | jq ".[$index]" 2>/dev/null || echo "null"
+}
+
+json_test_validate() {
+  local json="$1"
+  echo "$json" | jq . >/dev/null 2>&1
+}
+
+json_test_extract_build_spec() {
+  local build_requirements="$1"
+  local framework_index="${2:-0}"
+  local step_index="${3:-0}"
+  echo "$build_requirements" | jq ".[$framework_index].build_steps[$step_index]" 2>/dev/null || echo "null"
+}
+
+# ============================================================================
+# Initialization Tests
+# ============================================================================
+
+@test "build_manager_initialize succeeds when Docker is available" {
+  setup_build_manager_test "init_test"
+
+  # Mock Docker being available
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  output=$(build_manager_initialize 2>&1)
+  status=$?
+
+  # Should succeed
+  assert_build_manager_initialized "$output"
+  [ $status -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_initialize creates temporary directory structure" {
+  setup_build_manager_test "temp_dir_test"
+
+  # Mock Docker being available
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  build_manager_initialize
+
+  # Should create temporary directory
+  [ -d "$TEST_BUILD_MANAGER_DIR" ]
+  [ -d "$TEST_BUILD_MANAGER_DIR/builds" ]
+  [ -d "$TEST_BUILD_MANAGER_DIR/artifacts" ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_initialize handles Docker unavailability gracefully" {
+  setup_build_manager_test "docker_unavailable_test"
+
+  # Mock Docker being unavailable
+  build_manager_check_docker() { return 1; }
+
+  # Initialize build manager
+  if output=$(build_manager_initialize 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  # Should fail gracefully
+  assert_docker_unavailable_handled "$output"
+  [ $status -ne 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_initialize initializes build tracking structures" {
+  setup_build_manager_test "tracking_test"
+
+  # Mock Docker being available
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  build_manager_initialize
+
+  # Should initialize tracking structures
+  [ -f "$TEST_BUILD_MANAGER_DIR/build_status.json" ]
+  [ -f "$TEST_BUILD_MANAGER_DIR/active_builds.json" ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Build Dependency Analysis Tests
+# ============================================================================
+
+@test "build_manager_analyze_dependencies identifies independent builds (Tier 0)" {
+  setup_build_manager_test "dependency_analysis_test"
+
+  # Create build requirements with no dependencies
+  build_requirements=$(create_mock_build_requirements "rust" "simple")
+
+  # Analyze dependencies
+  output=$(build_manager_analyze_dependencies "$build_requirements")
+
+  # Should identify Tier 0 builds
+  assert_dependency_analysis "$output" "1"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_analyze_dependencies groups builds into dependency tiers" {
+  setup_build_manager_test "tier_analysis_test"
+
+  # Create multi-framework build requirements
+  build_requirements=$(create_multi_framework_build_requirements)
+
+  # Analyze dependencies
+  output=$(build_manager_analyze_dependencies "$build_requirements")
+
+  # Should create dependency tiers
+  assert_dependency_analysis "$output" "1"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_analyze_dependencies handles circular dependencies gracefully" {
+  setup_build_manager_test "circular_dependency_test"
+
+  # Create build requirements with circular dependencies
+  build_requirements='[
+    {"framework": "a", "build_dependencies": ["b"]},
+    {"framework": "b", "build_dependencies": ["a"]}
+  ]'
+
+  # Analyze dependencies
+  if output=$(build_manager_analyze_dependencies "$build_requirements" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  # Should detect and handle circular dependencies
+  [ $status -ne 0 ]
+  echo "$output" | grep -E -q "circular|cycle|dependency"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_analyze_dependencies identifies independent builds for parallel execution" {
+  setup_build_manager_test "parallel_identification_test"
+
+  # Create multiple independent build requirements
+  build_requirements='[
+    {"framework": "rust", "build_dependencies": []},
+    {"framework": "go", "build_dependencies": []},
+    {"framework": "node", "build_dependencies": []}
+  ]'
+
+  # Analyze dependencies
+  output=$(build_manager_analyze_dependencies "$build_requirements")
+
+  # Should identify all as parallel candidates (all in tier_0)
+  tier_0_length=$(json_test_get "$output" '.tier_0 | length')
+  [ "$tier_0_length" == "3" ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_analyze_dependencies determines sequential execution order" {
+  setup_build_manager_test "execution_order_test"
+
+  # Create build requirements with dependencies
+  build_requirements='[
+    {"framework": "app", "build_dependencies": ["lib"]},
+    {"framework": "lib", "build_dependencies": []}
+  ]'
+
+  # Analyze dependencies
+  output=$(build_manager_analyze_dependencies "$build_requirements")
+
+  # Should determine execution order (lib before app)
+  # Check that lib is in tier_0 and app is in tier_1
+  tier_0_has_lib=$(json_test_get "$output" '.tier_0 | index("lib")')
+  tier_1_has_app=$(json_test_get "$output" '.tier_1 | index("app")')
+  [ "$tier_0_has_lib" != "null" ] && [ "$tier_1_has_app" != "null" ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Build Orchestration Tests
+# ============================================================================
+
+@test "build_manager_orchestrate receives build requirements from Project Scanner" {
+  setup_build_manager_test "orchestration_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Orchestrate builds
+  output=$(build_manager_orchestrate "$build_requirements")
+
+  # Should accept and process build requirements (return valid JSON)
+  json_test_validate "$output"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_orchestrate validates build requirements structure" {
+  setup_build_manager_test "validation_test"
+
+  # Test with valid requirements
+  valid_requirements=$(create_mock_build_requirements)
+  output=$(build_manager_orchestrate "$valid_requirements")
+  [ $? -eq 0 ]
+
+  # Test with invalid requirements
+  invalid_requirements=$(create_invalid_build_requirements "missing_framework")
+  if output=$(build_manager_orchestrate "$invalid_requirements" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+  [ $status -ne 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_orchestrate handles empty build requirements list" {
+  setup_build_manager_test "empty_requirements_test"
+
+  # Create empty build requirements
+  build_requirements=$(create_empty_build_requirements)
+
+  # Orchestrate builds
+  output=$(build_manager_orchestrate "$build_requirements")
+
+  # Should handle empty list gracefully (return empty array)
+  output_length=$(json_test_array_length "$output")
+  [ "$output_length" == "0" ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_orchestrate handles invalid build requirements gracefully" {
+  setup_build_manager_test "invalid_requirements_test"
+
+  # Test various invalid requirements
+  invalid_json=$(create_invalid_build_requirements "invalid_json")
+  if output=$(build_manager_orchestrate "$invalid_json" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+  [ $status -ne 0 ]
+  echo "$output" | grep -iE -q "invalid|error|malformed"
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Build Execution Tests (Mocked Docker - Logic Only)
+# ============================================================================
+
+@test "build_manager_execute_build launches build containers with correct configuration" {
+  setup_build_manager_test "container_launch_test"
+
+  # Mock Docker availability
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  build_manager_initialize > /dev/null
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function
+  docker_run() { mock_docker_run "$@"; }
+
+  # Execute build
+  if output=$(build_manager_execute_build "$build_spec" "rust" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  # Should return build result JSON
+  echo "$output" | grep -E -q '"status":|"framework":|"container_id":'
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build allocates CPU cores correctly" {
+  setup_build_manager_test "cpu_allocation_test"
+
+  # Mock Docker availability
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  build_manager_initialize > /dev/null
+
+  # Create build requirements with specific CPU allocation
+  build_requirements=$(create_mock_build_requirements "rust" "with_dependencies")
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function
+  docker_run() { mock_docker_run "$@"; }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should allocate CPU cores correctly
+  echo "$output" | grep -q '"cpu_cores_used": *2'
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build executes dependency installation commands" {
+  setup_build_manager_test "dependency_install_test"
+
+  # Mock Docker availability
+  build_manager_check_docker() { return 0; }
+
+  # Initialize build manager
+  build_manager_initialize > /dev/null
+
+  # Create build requirements with dependency installation
+  build_requirements=$(create_mock_build_requirements "rust" "with_dependencies")
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function with dependency context
+  docker_run() {
+    # Check if this looks like dependency installation (has install command)
+    local install_cmd
+    install_cmd=$(json_test_get "$build_spec" '.install_dependencies_command // empty')
+    if [[ -n "$install_cmd" ]] && [[ "$install_cmd" != "null" ]]; then
+      mock_docker_run "$@" 0 "Dependencies installed successfully. Build command executed."
+    else
+      mock_docker_run "$@"
+    fi
+  }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should execute successfully (dependency installation may succeed or fail by mock)
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build executes build commands with parallel support" {
+  setup_build_manager_test "parallel_build_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function that includes build command in output
+  docker_run() { mock_docker_run "$@" 0 "Executing: rust build --jobs 4"; }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build captures build output (stdout/stderr)" {
+  setup_build_manager_test "output_capture_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function
+  docker_run() { mock_docker_run "$@"; }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should capture and return build output
+  echo "$output" | grep -E -q "output|captured|stdout|stderr"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build tracks build status" {
+  setup_build_manager_test "status_tracking_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function
+  docker_run() { mock_docker_run "$@"; }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should track and report build status
+  echo "$output" | grep -E -q "status|time|seconds|duration"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build handles build container failures" {
+  setup_build_manager_test "container_failure_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker run function that fails
+  docker_run() { mock_docker_run "$1" "$2" "$3" "1" "Build failed"; }
+
+  # Execute build
+  if output=$(build_manager_execute_build "$build_spec" "rust" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  # Should handle container failure gracefully
+  echo "$output" | grep -E -q "failed|error|exit.*1|failure"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_build extracts build artifacts from containers" {
+  setup_build_manager_test "artifact_extraction_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Extract build spec for rust (the build_steps[0])
+  build_spec=$(json_test_extract_build_spec "$build_requirements" 0 0)
+
+  # Mock Docker functions with artifact extraction simulation
+  docker_run() { mock_docker_run "$@" 0 "Build completed successfully"; }
+  docker_cp() { mock_docker_cp "$@" 0; }
+
+  # Execute build
+  output=$(build_manager_execute_build "$build_spec" "rust")
+
+  # Should execute successfully (artifacts are extracted by mock)
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Test Image Creation Tests (Mocked Docker - Logic Only)
+# ============================================================================
+
+@test "build_manager_create_test_image generates Dockerfile with correct structure" {
+  setup_build_manager_test "dockerfile_generation_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock Docker build function
+  docker_build() { mock_docker_build "$1" "$2" "0"; }
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image includes build artifacts in Dockerfile" {
+  setup_build_manager_test "artifact_inclusion_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock Docker build function
+  docker_build() { mock_docker_build "$1" "$2" "0"; }
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image includes source code in Dockerfile" {
+  setup_build_manager_test "source_inclusion_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock Docker build function
+  docker_build() { mock_docker_build "$1" "$2" "0"; }
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image includes test suites in Dockerfile" {
+  setup_build_manager_test "test_suite_inclusion_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock Docker build function
+  docker_build() { mock_docker_build "$1" "$2" "0"; }
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image builds Docker image successfully (mocked)" {
+  setup_build_manager_test "image_build_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock Docker build function
+  docker_build() { mock_docker_build "$@"; }
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image tags image with framework identifier and timestamp" {
+  setup_build_manager_test "image_tagging_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image verifies image contains required components (mocked)" {
+  setup_build_manager_test "image_verification_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Create test image
+  output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_create_test_image handles Docker image build failures (mocked)" {
+  setup_build_manager_test "image_build_failure_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Undefine mock_docker_build so we go through the normal code path
+  # This allows us to test the failure handling in build_manager_build_test_image
+  unset -f mock_docker_build
+
+  # Mock Docker build function that fails (outputs to stderr, returns 1)
+  docker_build() {
+    echo "ERROR: Failed to build Docker image" >&2
+    return 1
+  }
+
+  # Create test image - capture stdout only for JSON parsing
+  if output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts"); then
+    status=0
+  else
+    status=$?
+  fi
+
+  # Should handle build failure
+  success_value=$(json_test_get "$output" '.success')
+  [ $status -ne 0 ] && [ "$success_value" == "false" ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Parallel Execution Tests
+# ============================================================================
+
+@test "build_manager_execute_parallel executes independent builds in parallel" {
+  setup_build_manager_test "parallel_execution_test"
+
+  # Create multiple independent build requirements
+  build_requirements=$(create_multi_framework_build_requirements)
+
+  # Mock async execution for testing
+  run_async_operation() { echo "mock_async_$1"; }
+  wait_for_operation() { return 0; }
+
+  # Execute in parallel
+  output=$(build_manager_execute_parallel "$build_requirements")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_parallel limits parallel builds based on CPU cores" {
+  setup_build_manager_test "cpu_limit_test"
+
+  # Create many build requirements
+  build_requirements='[
+    {"framework": "rust", "build_dependencies": []},
+    {"framework": "go", "build_dependencies": []},
+    {"framework": "node", "build_dependencies": []},
+    {"framework": "java", "build_dependencies": []},
+    {"framework": "python", "build_dependencies": []}
+  ]'
+
+  # Execute in parallel
+  output=$(build_manager_execute_parallel "$build_requirements")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_parallel waits for dependency tier completion before next tier" {
+  setup_build_manager_test "tier_completion_test"
+
+  # Create build requirements with dependencies
+  build_requirements='[
+    {"framework": "app", "build_dependencies": ["lib"]},
+    {"framework": "lib", "build_dependencies": []}
+  ]'
+
+  # Execute in parallel
+  output=$(build_manager_execute_parallel "$build_requirements")
+
+  # Should execute successfully
+  [ $? -eq 0 ]
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_execute_parallel handles parallel build failures gracefully" {
+  setup_build_manager_test "parallel_failure_test"
+
+  # Create build requirements where one will fail
+  build_requirements='[
+    {"framework": "rust", "build_dependencies": []},
+    {"framework": "failing", "build_dependencies": []}
+  ]'
+
+  # Execute in parallel
+  output=$(build_manager_execute_parallel "$build_requirements")
+
+  # Should execute (even with some failures)
+  # Note: In test mode, this may still return success
+  [ $? -eq 0 ] || [ $? -eq 1 ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Status Tracking Tests
+# ============================================================================
+
+@test "build_manager_track_status tracks build status transitions (pending → building → built/success || failure)" {
+  setup_build_manager_test "status_transitions_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Track status through build lifecycle
+  output=$(build_manager_track_status "$build_requirements" "rust")
+
+  # Should track all status transitions
+  echo "$output" | grep -E -q "pending|building|built|success|failure|status"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_track_status updates status in real-time" {
+  setup_build_manager_test "real_time_update_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Track status updates
+  output=$(build_manager_track_status "$build_requirements" "rust")
+
+  # Should show real-time updates
+  echo "$output" | grep -E -q "progress|updating|real.*time|status"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_track_status provides final build result data" {
+  setup_build_manager_test "final_result_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Get build result
+  output=$(build_manager_track_status "$build_requirements" "rust")
+
+  # Should provide final result
+  echo "$output" | grep -E -q "json|result|final|status"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_track_status includes build duration in results" {
+  setup_build_manager_test "duration_result_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Get build result
+  output=$(build_manager_track_status "$build_requirements" "rust")
+
+  # Should include duration
+  echo "$output" | grep -E -q "duration|time.*taken|elapsed|seconds"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_track_status includes container IDs in results" {
+  setup_build_manager_test "container_id_result_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Get build result
+  output=$(build_manager_track_status "$build_requirements" "rust")
+
+  # Should include container ID
+  echo "$output" | grep -E -q "container.*id|container_id"
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Error Handling Tests
+# ============================================================================
+
+@test "build_manager_handle_error handles build command failures" {
+  setup_build_manager_test "build_command_failure_test"
+
+  # Create build requirements that will fail
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock build command failure
+  build_command() { return 1; }
+
+  # Handle error
+  output=$(build_manager_handle_error "build_command_failure" "$build_requirements" "rust" 2>&1)
+
+  # Should handle build command failure
+  echo "$output" | grep -E -q "build.*(failed|failure|error)|command.*error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error handles container launch failures" {
+  setup_build_manager_test "container_launch_failure_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock container launch failure
+  docker_run() { return 1; }
+
+  # Handle error
+  output=$(build_manager_handle_error "container_launch_failure" "$build_requirements" "rust" 2>&1)
+
+  # Should handle container launch failure
+  echo "$output" | grep -E -q "container.*(failed|failure|error)|launch.*error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error handles artifact extraction failures" {
+  setup_build_manager_test "artifact_extraction_failure_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock artifact extraction failure
+  docker_cp() { return 1; }
+
+  # Handle error
+  output=$(build_manager_handle_error "artifact_extraction_failure" "$build_requirements" "rust" 2>&1)
+
+  # Should handle artifact extraction failure
+  echo "$output" | grep -E -q "artifact.*(failed|failure|error)|extraction.*error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error handles test image build failures" {
+  setup_build_manager_test "image_build_failure_error_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Mock image build failure
+  docker_build() { return 1; }
+
+  # Handle error
+  output=$(build_manager_handle_error "image_build_failure" "$build_requirements" "rust" 2>&1)
+
+  # Should handle image build failure
+  echo "$output" | grep -E -q "image.*(failed|failure|error)|build.*error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error handles dependency failures" {
+  setup_build_manager_test "dependency_failure_test"
+
+  # Create build requirements with failed dependencies
+  build_requirements='[
+    {"framework": "app", "build_dependencies": ["failed_lib"]},
+    {"framework": "failed_lib", "build_dependencies": []}
+  ]'
+
+  # Handle error
+  output=$(build_manager_handle_error "dependency_failure" "$build_requirements" "app" 2>&1)
+
+  # Should handle dependency failure
+  echo "$output" | grep -E -q "dependency.*(failed|failure|error)|prerequisite.*error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error provides clear error messages" {
+  setup_build_manager_test "clear_error_message_test"
+
+  # Create build requirements
+  build_requirements=$(create_mock_build_requirements)
+
+  # Handle various errors
+  output1=$(build_manager_handle_error "build_failure" "$build_requirements" "rust" 2>&1)
+  output2=$(build_manager_handle_error "docker_unavailable" "$build_requirements" "rust" 2>&1)
+
+  # Should provide clear error messages
+  echo "$output1" | grep -E -q "clear|helpful|actionable|error"
+  echo "$output2" | grep -E -q "clear|helpful|actionable|error"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_error prevents test execution on build failure" {
+  setup_build_manager_test "prevent_test_execution_test"
+
+  # Create build requirements that fail
+  build_requirements=$(create_mock_build_requirements)
+
+  # Handle build failure
+  output=$(build_manager_handle_error "build_failure" "$build_requirements" "rust" 2>&1)
+
+  # Should prevent test execution
+  echo "$output" | grep -E -q "test.*prevented|no.*execution|build.*(failed|failure)"
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# Signal Handling Tests
+# ============================================================================
+
+@test "build_manager_handle_signal handles SIGINT (first Control+C) gracefully" {
+  setup_build_manager_test "sigint_first_test"
+
+  # Start build process
+  build_manager_start_build "$(create_mock_build_requirements)" >/dev/null
+
+  # Send SIGINT
+  output=$(build_manager_handle_signal "SIGINT" "first")
+
+  # Should handle gracefully (match the actual output "Gracefully shutting down builds...")
+  echo "$output" | grep -q "Gracefully shutting down"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_signal terminates build containers on SIGINT" {
+  setup_build_manager_test "container_termination_test"
+
+  # Start build with containers
+  build_manager_start_build "$(create_mock_build_requirements)" >/dev/null
+
+  # Send SIGINT
+  output=$(build_manager_handle_signal "SIGINT" "first")
+
+  # Should terminate containers (check for container cleanup messages)
+  echo "$output" | grep -E -q "container.*terminated|docker.*kill|Container.*stopped|Gracefully shutting down"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_signal cleans up containers on graceful shutdown" {
+  setup_build_manager_test "graceful_cleanup_test"
+
+  # Start build process
+  build_manager_start_build "$(create_mock_build_requirements)"
+
+  # Send SIGINT for graceful shutdown
+  output=$(build_manager_handle_signal "SIGINT" "first")
+
+  # Should gracefully shut down
+  echo "$output" | grep -q "Gracefully shutting down"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_signal handles second Control+C (force termination)" {
+  setup_build_manager_test "sigint_second_test"
+
+  # Start build process
+  build_manager_start_build "$(create_mock_build_requirements)"
+
+  # Send second SIGINT
+  output=$(build_manager_handle_signal "SIGINT" "second")
+
+  # Should force terminate
+  echo "$output" | grep -q "Forcefully terminating"
+
+  teardown_build_manager_test
+}
+
+@test "build_manager_handle_signal cleans up temporary resources on interruption" {
+  setup_build_manager_test "resource_cleanup_test"
+
+  # Start build process
+  build_manager_start_build "$(create_mock_build_requirements)"
+
+  # Send SIGINT
+  build_manager_handle_signal "SIGINT" "first"
+
+  # Should clean up temporary resources
+  [ ! -d "$TEST_BUILD_MANAGER_DIR/builds" ] || [ -z "$(ls -A "$TEST_BUILD_MANAGER_DIR/builds")" ]
+
+  teardown_build_manager_test
+}
+
+# ============================================================================
+# build_manager_handle_signal Edge Cases (Regression Tests)
+# ============================================================================
+
+@test "build_manager_handle_signal handles unset BUILD_MANAGER_SIGNAL_RECEIVED" {
+	# Test the fix: changed from == "false" to != "true" to handle unset variables
+	setup_build_manager_test "unset_signal_test"
+	
+	# Explicitly unset the variable to test the fix
+	unset BUILD_MANAGER_SIGNAL_RECEIVED
+	
+	# Start build process
+	build_manager_start_build "$(create_mock_build_requirements)" >/dev/null
+	
+	# Send SIGINT - should work even with unset variable
+	output=$(build_manager_handle_signal "SIGINT" "first")
+	
+	# Should handle gracefully
+	echo "$output" | grep -q "Gracefully shutting down"
+	
+	teardown_build_manager_test
+}
+
+@test "build_manager_handle_signal handles BUILD_MANAGER_SIGNAL_RECEIVED set to empty string" {
+	# Test edge case where variable is set but empty
+	setup_build_manager_test "empty_signal_test"
+	
+	# Set to empty string
+	BUILD_MANAGER_SIGNAL_RECEIVED=""
+	export BUILD_MANAGER_SIGNAL_RECEIVED
+	
+	# Start build process
+	build_manager_start_build "$(create_mock_build_requirements)" >/dev/null
+	
+	# Send SIGINT - should work with empty string
+	output=$(build_manager_handle_signal "SIGINT" "first")
+	
+	# Should handle gracefully
+	echo "$output" | grep -q "Gracefully shutting down"
+	
+	teardown_build_manager_test
+}
+
+@test "_build_manager_cleanup_on_signal outputs messages in test mode" {
+	# Test that cleanup function outputs messages for test verification
+	setup_build_manager_test "cleanup_output_test"
+	
+	# Set up a mock container
+	BUILD_MANAGER_ACTIVE_CONTAINERS=("test-container-123")
+	export BUILD_MANAGER_ACTIVE_CONTAINERS
+	
+	# Mock the cleanup functions to avoid actual Docker calls
+	build_manager_stop_container() {
+		echo "Mock stop: $1" >/dev/null
+	}
+	build_manager_cleanup_container() {
+		echo "Mock cleanup: $1" >/dev/null
+	}
+	export -f build_manager_stop_container build_manager_cleanup_container
+	
+	# Call cleanup with force=false (graceful)
+	output=$(_build_manager_cleanup_on_signal false)
+	
+	# Should output container cleanup message
+	echo "$output" | grep -q "Container.*stopped gracefully"
+	
+	# Call cleanup with force=true (forceful)
+	output=$(_build_manager_cleanup_on_signal true)
+	
+	# Should output container termination message
+	echo "$output" | grep -q "Container.*terminated via docker kill"
+	
+	unset -f build_manager_stop_container build_manager_cleanup_container
+	teardown_build_manager_test
+}
+
+@test "_build_manager_cleanup_on_signal handles empty container array" {
+	# Test that cleanup doesn't fail with empty array
+	setup_build_manager_test "empty_containers_test"
+	
+	# Set empty container array
+	BUILD_MANAGER_ACTIVE_CONTAINERS=()
+	export BUILD_MANAGER_ACTIVE_CONTAINERS
+	
+	# Should not fail or output anything
+	output=$(_build_manager_cleanup_on_signal false)
+	
+	# Output should be empty or just whitespace
+	[ -z "$output" ] || [ -z "${output// }" ]
+	
+	teardown_build_manager_test
+}

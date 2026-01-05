@@ -1,8 +1,100 @@
 #!/usr/bin/env bats
 
+# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
+# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Local Variables:
+# tab-width: 4
+# indent-tabs-mode: t
+# End:
+
+
 load ../helpers/adapter_registry
 load ../helpers/project_scanner
 load ../helpers/fixtures
+
+# Source all required modules from src/ for integration tests
+_source_integration_modules() {
+  # Find and source json_helpers.sh
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry_helpers.sh
+  local adapter_registry_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+    adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+  else
+    adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+  fi
+  source "$adapter_registry_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+
+  # Find and source framework_detector.sh
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Find and source scanner.sh
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Find and source adapters
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
+}
+
+_source_integration_modules
+
+# Enable integration test mode for real Docker operations
+export SUITEY_INTEGRATION_TEST=1
 
 # ============================================================================
 # Test Suite Discovery - Adapter Registry Integration Tests
@@ -395,20 +487,8 @@ EOF
 run_test_suite_discovery_registry_integration() {
   local project_dir="${1:-$TEST_PROJECT_DIR}"
   local output
-  local scanner_script
 
-  # Determine the path to suitey.sh
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    scanner_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source suitey.sh to make functions available
-  source "$scanner_script"
-
+  # Modules are already sourced via _source_integration_modules at the top
   # Run test suite discovery and capture both stdout and stderr
   output=$(test_suite_discovery_with_registry "$project_dir" 2>&1) || true
   echo "$output"
@@ -422,7 +502,7 @@ run_test_suite_discovery_registry_integration() {
 assert_test_suite_discovery_used_registry() {
   local output="$1"
 
-  if ! echo "$output" | grep -q "registry\|adapter.*discovery\|discovery.*adapter"; then
+  if ! echo "$output" | grep -E -q "registry|adapter.*discovery|discovery.*adapter"; then
     echo "ERROR: Expected Test Suite Discovery to use adapter registry"
     echo "Output was: $output"
     return 1
@@ -436,7 +516,7 @@ assert_adapter_discovery_method_called() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "discover.*$adapter_identifier\|${adapter_identifier}.*discover"; then
+  if ! echo "$output" | grep -E -q "discover.*$adapter_identifier|${adapter_identifier}.*discover"; then
     echo "ERROR: Expected discover_test_suites method to be called on adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -450,7 +530,7 @@ assert_test_files_found_via_adapter() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "files.*found.*$adapter_identifier\|${adapter_identifier}.*files.*found\|test.*files.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "files.*found.*$adapter_identifier|${adapter_identifier}.*files.*found|test.*files.*$adapter_identifier"; then
     echo "ERROR: Expected test files to be found via adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -464,7 +544,7 @@ assert_test_files_grouped_by_adapter() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "grouped.*$adapter_identifier\|${adapter_identifier}.*grouped\|suite.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "grouped.*$adapter_identifier|${adapter_identifier}.*grouped|suite.*$adapter_identifier"; then
     echo "ERROR: Expected test files to be grouped by adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -478,14 +558,14 @@ assert_discovery_adapter_failure_handled() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "failed.*$adapter_identifier\|${adapter_identifier}.*failed\|skipped.*discovery.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "failed.*$adapter_identifier|${adapter_identifier}.*failed|skipped.*discovery.*$adapter_identifier"; then
     echo "ERROR: Expected discovery failure of adapter '$adapter_identifier' to be handled gracefully"
     echo "Output was: $output"
     return 1
   fi
 
   # Should not have crashed the entire discovery process
-  if echo "$output" | grep -q "fatal\|crash\|aborted"; then
+  if echo "$output" | grep -E -q "fatal|crash|aborted"; then
     echo "ERROR: Test Suite Discovery should not crash when adapter fails"
     echo "Output was: $output"
     return 1
@@ -499,7 +579,7 @@ assert_discovery_adapter_success_processed() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "success.*$adapter_identifier\|${adapter_identifier}.*success\|discovered.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "success.*$adapter_identifier|${adapter_identifier}.*success|discovered.*$adapter_identifier"; then
     echo "ERROR: Expected successful discovery processing of adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -515,7 +595,7 @@ assert_suites_discovered_for_all_frameworks() {
 
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "suites.*$adapter\|${adapter}.*suites\|discovered.*$adapter"; then
+    if ! echo "$output" | grep -E -q "suites.*$adapter|${adapter}.*suites|discovered.*$adapter"; then
       echo "ERROR: Expected test suites to be discovered for framework adapter '$adapter'"
       echo "Output was: $output"
       return 1
@@ -532,7 +612,7 @@ assert_all_frameworks_processed() {
 
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "processed.*$adapter\|${adapter}.*processed"; then
+    if ! echo "$output" | grep -E -q "processed.*$adapter|${adapter}.*processed"; then
       echo "ERROR: Expected framework adapter '$adapter' to be processed"
       echo "Output was: $output"
       return 1
@@ -540,7 +620,7 @@ assert_all_frameworks_processed() {
   done
 
   # Should show continuation after first framework
-  if ! echo "$output" | grep -q "continue\|next\|additional"; then
+  if ! echo "$output" | grep -E -q "continue|next|additional"; then
     echo "ERROR: Expected indication that processing continued after first framework"
     echo "Output was: $output"
     return 1
@@ -556,7 +636,7 @@ assert_suites_aggregated_from_adapters() {
 
   IFS=',' read -ra expected_array <<< "$expected_adapters"
   for adapter in "${expected_array[@]}"; do
-    if ! echo "$output" | grep -q "aggregated.*$adapter\|${adapter}.*aggregated"; then
+    if ! echo "$output" | grep -E -q "aggregated.*$adapter|${adapter}.*aggregated"; then
       echo "ERROR: Expected suites to be aggregated from adapter '$adapter'"
       echo "Output was: $output"
       return 1
@@ -571,7 +651,7 @@ assert_framework_metadata_used() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "metadata.*$adapter_identifier\|${adapter_identifier}.*metadata"; then
+  if ! echo "$output" | grep -E -q "metadata.*$adapter_identifier|${adapter_identifier}.*metadata"; then
     echo "ERROR: Expected framework metadata to be used for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -586,7 +666,7 @@ assert_coordination_with_framework_detector() {
   local expected_adapters="$2"
 
   # Should show coordination between components
-  if ! echo "$output" | grep -q "framework.*detector\|detector.*framework\|coordinated"; then
+  if ! echo "$output" | grep -E -q "framework.*detector|detector.*framework|coordinated"; then
     echo "ERROR: Expected coordination with Framework Detector"
     echo "Output was: $output"
     return 1
@@ -612,14 +692,14 @@ assert_discovery_failure_handled() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "discovery.*failed.*$adapter_identifier\|${adapter_identifier}.*discovery.*failed"; then
+  if ! echo "$output" | grep -E -q "(discovery.*failed|failed discovery).*$adapter_identifier|${adapter_identifier}.*(discovery.*failed|failed discovery)"; then
     echo "ERROR: Expected discovery failure of adapter '$adapter_identifier' to be handled gracefully"
     echo "Output was: $output"
     return 1
   fi
 
   # Should not crash the entire process
-  if echo "$output" | grep -q "fatal\|aborted"; then
+  if echo "$output" | grep -E -q "fatal|aborted"; then
     echo "ERROR: Test Suite Discovery should not crash on discovery failures"
     echo "Output was: $output"
     return 1
@@ -633,7 +713,7 @@ assert_test_suite_structure_validated() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "validated.*$adapter_identifier\|${adapter_identifier}.*validated\|structure.*$adapter_identifier"; then
+  if ! echo "$output" | grep -E -q "validated.*$adapter_identifier|${adapter_identifier}.*validated|structure.*$adapter_identifier"; then
     echo "ERROR: Expected test suite structure to be validated for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1

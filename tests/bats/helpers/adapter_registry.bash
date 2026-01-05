@@ -1,5 +1,91 @@
 #!/usr/bin/env bash
 # Helper functions for Adapter Registry tests
+#
+# For parallel-safe teardown utilities, see common_teardown.bash
+# For test guidelines and best practices, see tests/TEST_GUIDELINES.md
+
+# ============================================================================
+# Source common teardown utilities
+# ============================================================================
+
+common_teardown_script=""
+if [[ -f "$BATS_TEST_DIRNAME/common_teardown.bash" ]]; then
+  common_teardown_script="$BATS_TEST_DIRNAME/common_teardown.bash"
+elif [[ -f "$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash" ]]; then
+  common_teardown_script="$(dirname "$BATS_TEST_DIRNAME")/helpers/common_teardown.bash"
+else
+  common_teardown_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/helpers" && pwd)/common_teardown.bash"
+fi
+if [[ -f "$common_teardown_script" ]]; then
+  source "$common_teardown_script"
+fi
+
+# ============================================================================
+# Source the adapter registry helpers module
+# ============================================================================
+
+# Find and source adapter_registry_helpers.sh
+adapter_registry_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+  adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+  adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+else
+  adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+fi
+
+source "$adapter_registry_helpers_script"
+
+# ============================================================================
+# JSON Helper Functions (will be replaced with shared helpers in Phase 2)
+# ============================================================================
+
+# Test-local JSON helper functions (wrappers around jq for now)
+json_test_get() {
+  local json="$1"
+  local path="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
+  echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+json_test_has_field() {
+  local json="$1"
+  local field="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
+  echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
+}
+
+json_test_field_contains() {
+  local json="$1"
+  local field="$2"
+  local value="$3"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
+  echo "$json" | jq -r ".$field" 2>/dev/null | grep -q "$value" 2>/dev/null
+}
 
 # ============================================================================
 # Setup/Teardown Functions
@@ -14,16 +100,10 @@ setup_adapter_registry_test() {
 }
 
 # Clean up temporary directory and registry state
+# See tests/TEST_GUIDELINES.md for parallel-safe teardown patterns
+# Uses common_teardown.bash utilities for standardized safe cleanup
 teardown_adapter_registry_test() {
-  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -d "$TEST_ADAPTER_REGISTRY_DIR" ]]; then
-    rm -rf "$TEST_ADAPTER_REGISTRY_DIR"
-    unset TEST_ADAPTER_REGISTRY_DIR
-  fi
-
-  # Clean up registry state files
-  rm -f /tmp/suitey_adapter_registry /tmp/suitey_adapter_capabilities /tmp/suitey_adapter_order /tmp/suitey_adapter_init
-  # Clean up any test directories that might be left
-  find /tmp -maxdepth 1 -name "suitey_adapter_test_*" -type d -exec rm -rf {} + 2>/dev/null || true
+  safe_teardown_adapter_registry
 }
 
 # ============================================================================
@@ -96,13 +176,24 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
 ${adapter_identifier}_adapter_execute_test_suite() {
   local test_suite="\$1"
-  local build_artifacts="\$2"
+  local test_image="\$2"
   local execution_config="\$3"
 
   cat << EXEC_EOF
@@ -111,7 +202,8 @@ ${adapter_identifier}_adapter_execute_test_suite() {
   "duration": 1.5,
   "output": "Mock test output",
   "container_id": "mock_container",
-  "execution_method": "mock"
+  "execution_method": "mock",
+  "test_image": "\${test_image:-}"
 }
 EXEC_EOF
 }
@@ -202,13 +294,24 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
 ${adapter_identifier}_adapter_execute_test_suite() {
   local test_suite="\$1"
-  local build_artifacts="\$2"
+  local test_image="\$2"
   local execution_config="\$3"
 
   cat << EXEC_EOF
@@ -217,7 +320,8 @@ ${adapter_identifier}_adapter_execute_test_suite() {
   "duration": 1.5,
   "output": "Mock test output",
   "container_id": "mock_container",
-  "execution_method": "mock"
+  "execution_method": "mock",
+  "test_image": "\${test_image:-}"
 }
 EXEC_EOF
 }
@@ -390,7 +494,18 @@ ${adapter_identifier}_adapter_get_build_steps() {
   local build_requirements="\$2"
 
   cat << STEPS_EOF
-[]
+[
+  {
+    "step_name": "build",
+    "docker_image": "test:latest",
+    "install_dependencies_command": "",
+    "build_command": "echo 'build command'",
+    "working_directory": "/workspace",
+    "volume_mounts": [],
+    "environment_variables": {},
+    "cpu_cores": null
+  }
+]
 STEPS_EOF
 }
 
@@ -435,22 +550,37 @@ EOF
 # Adapter Registry Function Wrappers
 # ============================================================================
 
+# Helper function to source adapter registry modules from src/
+_source_adapter_registry_modules() {
+  # Find and source json_helpers.sh (needed by adapter_registry.sh)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapter_registry.sh
+  local adapter_registry_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+    adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+  else
+    adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+  fi
+  source "$adapter_registry_script"
+}
+
 # Call adapter registry functions
 run_adapter_registry_register() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Source the adapter script if it exists
   local adapter_dir="$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_identifier"
@@ -466,36 +596,16 @@ run_adapter_registry_register() {
 run_adapter_registry_get() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get "$adapter_identifier"
 }
 
 run_adapter_registry_get_all() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get_all
@@ -504,18 +614,8 @@ run_adapter_registry_get_all() {
 run_adapter_registry_is_registered() {
   local adapter_identifier="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_is_registered "$adapter_identifier"
@@ -524,54 +624,58 @@ run_adapter_registry_is_registered() {
 run_adapter_registry_get_by_capability() {
   local capability="$1"
 
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_get_adapters_by_capability "$capability"
 }
 
 run_adapter_registry_initialize() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source framework_detector.sh (needed for json_object function used by adapters)
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Source built-in adapters (needed for initialization)
+  # Find and source adapters/bats.sh
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  # Find and source adapters/rust.sh
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
 
   # Call the function
   adapter_registry_initialize
 }
 
 run_adapter_registry_cleanup() {
-  # Source suitey.sh to make functions available
-  local suitey_script
-  if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-  elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-    suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-  else
-    suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-  fi
-
-  # Source the script to make functions available
-  source "$suitey_script"
+  # Source adapter registry modules from src/
+  _source_adapter_registry_modules
 
   # Call the function
   adapter_registry_cleanup
@@ -608,7 +712,7 @@ assert_failure() {
 # Assert that adapter registration succeeded
 assert_adapter_registration_success() {
   local output="$1"
-  if [[ -z "$output" ]] || echo "$output" | grep -q "ERROR\|error\|failed\|Failed"; then
+  if [[ -z "$output" ]] || echo "$output" | grep -iE -q "ERROR|error|failed"; then
     echo "ERROR: Expected successful adapter registration"
     echo "Output was: $output"
     return 1
@@ -623,28 +727,28 @@ assert_adapter_registration_error() {
 
   case "$error_type" in
     "identifier_conflict")
-      if ! echo "$output" | grep -q "identifier.*conflict\|already.*registered"; then
+      if ! echo "$output" | grep -E -q "identifier.*conflict|already.*registered"; then
         echo "ERROR: Expected identifier conflict error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "invalid_interface")
-      if ! echo "$output" | grep -q "invalid.*interface\|missing.*method"; then
+      if ! echo "$output" | grep -E -q "invalid.*interface|missing.*method"; then
         echo "ERROR: Expected invalid interface error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "invalid_metadata")
-      if ! echo "$output" | grep -q "invalid.*metadata\|missing.*field"; then
+      if ! echo "$output" | grep -E -q "invalid.*metadata|missing.*field"; then
         echo "ERROR: Expected invalid metadata error"
         echo "Output was: $output"
         return 1
       fi
       ;;
     "null_adapter")
-      if ! echo "$output" | grep -q "null.*adapter\|empty.*identifier"; then
+      if ! echo "$output" | grep -E -q "null.*adapter|empty.*identifier"; then
         echo "ERROR: Expected null adapter error"
         echo "Output was: $output"
         return 1
@@ -660,7 +764,7 @@ assert_adapter_found() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if echo "$output" | grep -q "not.*found\|null\|empty"; then
+  if echo "$output" | grep -E -q "not.*found|null|empty"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to be found"
     echo "Output was: $output"
     return 1
@@ -680,7 +784,7 @@ assert_adapter_not_found() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "not.*found\|null\|empty"; then
+  if ! echo "$output" | grep -E -q "not.*found|null|empty"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to not be found"
     echo "Output was: $output"
     return 1
@@ -711,7 +815,7 @@ assert_is_registered() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "true\|registered\|found"; then
+  if ! echo "$output" | grep -E -q "true|registered|found"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to be registered"
     echo "Output was: $output"
     return 1
@@ -725,7 +829,7 @@ assert_is_not_registered() {
   local output="$1"
   local adapter_identifier="$2"
 
-  if ! echo "$output" | grep -q "false\|not.*registered\|not.*found"; then
+  if ! echo "$output" | grep -E -q "false|not.*registered|not.*found"; then
     echo "ERROR: Expected adapter '$adapter_identifier' to not be registered"
     echo "Output was: $output"
     return 1
@@ -759,7 +863,15 @@ assert_adapter_metadata() {
   local field="$3"
   local expected_value="$4"
 
-  if ! echo "$output" | grep -q "\"$field\".*\"$expected_value\""; then
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
+
+  if ! json_test_field_contains "$output" "$field" "$expected_value"; then
     echo "ERROR: Expected metadata field '$field' with value '$expected_value' for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -773,10 +885,18 @@ assert_adapter_metadata_structure() {
   local output="$1"
   local adapter_identifier="$2"
 
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
+
   local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries")
 
   for field in "${required_fields[@]}"; do
-    if ! echo "$output" | grep -q "\"$field\""; then
+    if ! json_test_has_field "$output" "$field"; then
       echo "ERROR: Expected required metadata field '$field' for adapter '$adapter_identifier'"
       echo "Output was: $output"
       return 1
@@ -792,7 +912,15 @@ assert_adapter_capabilities() {
   local adapter_identifier="$2"
   local expected_capability="$3"
 
-  if ! echo "$output" | grep -q "\"capabilities\".*\"$expected_capability\""; then
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
+
+  if ! json_test_field_contains "$output" "capabilities" "$expected_capability"; then
     echo "ERROR: Expected capability '$expected_capability' for adapter '$adapter_identifier'"
     echo "Output was: $output"
     return 1
@@ -822,7 +950,7 @@ assert_builtin_adapters_present() {
 assert_registry_initialized() {
   local output="$1"
 
-  if echo "$output" | grep -q "ERROR\|error\|failed\|Failed"; then
+  if echo "$output" | grep -iE -q "ERROR|error|failed"; then
     echo "ERROR: Expected registry initialization to succeed"
     echo "Output was: $output"
     return 1
@@ -835,7 +963,7 @@ assert_registry_initialized() {
 assert_no_adapters_registered() {
   local output="$1"
 
-  if echo "$output" | grep -q "bats\|rust\|test_adapter"; then
+  if echo "$output" | grep -E -q "bats|rust|test_adapter"; then
     echo "ERROR: Expected no adapters to be registered after cleanup"
     echo "Output was: $output"
     return 1
@@ -1296,7 +1424,7 @@ assert_method_call_failure_handled() {
   local output="$1"
 
   # Should indicate the failure was handled
-  if ! echo "$output" | grep -q "ERROR\|failed\|Method call failed"; then
+  if ! echo "$output" | grep -iE -q "ERROR|failed|Method call failed"; then
     echo "ERROR: Expected method call failure to be indicated"
     echo "Output was: $output"
     return 1
@@ -1310,7 +1438,7 @@ assert_invalid_return_value_handled() {
   local output="$1"
 
   # Should handle invalid JSON gracefully
-  if echo "$output" | grep -q "fatal\|crash"; then
+  if echo "$output" | grep -E -q "fatal|crash"; then
     echo "ERROR: Invalid return value should not cause crash"
     echo "Output was: $output"
     return 1
@@ -1341,7 +1469,7 @@ assert_initialization_failure_handled() {
   local output="$1"
 
   # Should indicate initialization failure was handled
-  if ! echo "$output" | grep -q "failed\|error\|initialization"; then
+  if ! echo "$output" | grep -iE -q "failed|error|initialization"; then
     echo "ERROR: Expected initialization failure to be indicated"
     echo "Output was: $output"
     return 1
@@ -1414,7 +1542,7 @@ assert_timeout_handled() {
   local output="$1"
 
   # Should handle timeout gracefully without crashing
-  if echo "$output" | grep -q "fatal\|crash"; then
+  if echo "$output" | grep -E -q "fatal|crash"; then
     echo "ERROR: Timeout should not cause crash"
     echo "Output was: $output"
     return 1
@@ -1428,7 +1556,7 @@ assert_resource_exhaustion_handled() {
   local output="$1"
 
   # Should handle many adapters without crashing
-  if echo "$output" | grep -q "fatal\|crash\|resource.*exhausted"; then
+  if echo "$output" | grep -E -q "fatal|crash|resource.*exhausted"; then
     echo "ERROR: Resource exhaustion should be handled gracefully"
     echo "Output was: $output"
     return 1
@@ -1461,5 +1589,206 @@ assert_concurrent_access_handled() {
     return 1
   fi
 
+  return 0
+}
+
+# ============================================================================
+# Build Manager Interface Validation Helpers
+# ============================================================================
+
+# Assert build steps contain install_dependencies_command
+assert_build_steps_has_install_dependencies() {
+  local build_steps_json="$1"
+
+  # build_steps_json is an array, so check if any object in the array has the field
+  local has_field
+  has_field=$(echo "$build_steps_json" | jq -e 'any(.[]; has("install_dependencies_command"))' 2>/dev/null)
+  
+  if [[ "$has_field" != "true" ]]; then
+    echo "ERROR: Expected install_dependencies_command field in build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps contain cpu_cores
+assert_build_steps_has_cpu_cores() {
+  local build_steps_json="$1"
+
+  # build_steps_json is an array, so check if any object in the array has the field
+  local has_field
+  has_field=$(echo "$build_steps_json" | jq -e 'any(.[]; has("cpu_cores"))' 2>/dev/null)
+  
+  if [[ "$has_field" != "true" ]]; then
+    echo "ERROR: Expected cpu_cores field in build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build command supports parallel builds
+assert_build_command_parallel() {
+  local build_steps_json="$1"
+
+  # build_steps_json is an array, so we need to access the first element
+  jobs_value=$(json_test_get "$build_steps_json" '.[0].build_command')
+  if [[ "$jobs_value" != *'jobs $(nproc)'* ]]; then
+    echo "ERROR: Expected parallel build command with --jobs \$(nproc)"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps is empty array
+assert_build_steps_empty_array() {
+  local build_steps_json="$1"
+
+  if [[ "$build_steps_json" != "[]" ]]; then
+    echo "ERROR: Expected empty array for build steps"
+    echo "Build steps: $build_steps_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution succeeded (has valid exit_code)
+assert_execution_succeeded() {
+  local execution_result_json="$1"
+
+  if ! json_test_has_field "$execution_result_json" "exit_code"; then
+    echo "ERROR: Expected exit_code field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution result contains test_image
+assert_execution_result_has_test_image() {
+  local execution_result_json="$1"
+
+  if ! json_test_has_field "$execution_result_json" "test_image"; then
+    echo "ERROR: Expected test_image field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert execution result does not contain build_artifacts
+assert_execution_result_no_build_artifacts() {
+  local execution_result_json="$1"
+
+  if json_test_has_field "$execution_result_json" "build_artifacts"; then
+    echo "ERROR: Should not contain build_artifacts field in execution result"
+    echo "Execution result: $execution_result_json"
+    return 1
+  fi
+
+  return 0
+}
+
+# Assert build steps JSON is valid
+assert_build_steps_valid_json() {
+  local build_steps_json="$1"
+
+  # Check for required fields
+  local required_fields=("step_name" "docker_image" "install_dependencies_command" "build_command" "working_directory" "volume_mounts" "environment_variables" "cpu_cores")
+
+  for field in "${required_fields[@]}"; do
+    # build_steps_json is an array, so check if any object in the array has the field
+    local has_field
+    has_field=$(echo "$build_steps_json" | jq -e "any(.[]; has(\"$field\"))" 2>/dev/null)
+    
+    if [[ "$has_field" != "true" ]]; then
+      echo "ERROR: Missing required field '$field' in build steps JSON"
+      echo "Build steps: $build_steps_json"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Assert execution result JSON is valid
+assert_execution_result_valid_json() {
+  local execution_result_json="$1"
+
+  # Check for required fields
+  local required_fields=("exit_code" "duration" "output" "container_id" "execution_method" "test_image")
+
+  for field in "${required_fields[@]}"; do
+    if ! json_test_has_field "$execution_result_json" "$field"; then
+      echo "ERROR: Missing required field '$field' in execution result JSON"
+      echo "Execution result: $execution_result_json"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Assert project scanner handles build requirements
+assert_project_scanner_handles_build_requirements() {
+  local output="$1"
+  
+  # Should not contain build requirement errors
+  if echo "$output" | grep -iE -q "ERROR.*build|build.*failed|build.*error"; then
+    echo "ERROR: Expected project scanner to handle build requirements"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner passes test_image to adapters
+assert_project_scanner_passes_test_image() {
+  local output="$1"
+  
+  # Should indicate test_image parameter was passed
+  if ! echo "$output" | grep -E -q "test_image|image.*passed"; then
+    echo "ERROR: Expected test_image parameter to be passed to adapters"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner integrates build steps
+assert_project_scanner_integrates_build_steps() {
+  local output="$1"
+  
+  # Should show build steps integration
+  if ! echo "$output" | grep -E -q "build.*step|step.*build|build.*integration"; then
+    echo "ERROR: Expected build steps integration"
+    echo "Output was: $output"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Assert project scanner validates interfaces
+assert_project_scanner_validates_interfaces() {
+  local output="$1"
+  
+  # Should validate adapter interfaces
+  if ! echo "$output" | grep -E -q "interface|validated|compatibility"; then
+    echo "ERROR: Expected interface validation"
+    echo "Output was: $output"
+    return 1
+  fi
+  
   return 0
 }
