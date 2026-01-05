@@ -81,6 +81,291 @@ json_object() {
 # Test Suite Discovery JSON Parsing
 # ============================================================================
 
+# Helper: Extract suite name from JSON
+_parse_extract_suite_name() {
+	local suite_json="$1"
+	local framework="$2"
+
+	# Try framework-specific name fields first, then fall back to generic
+	local suite_name=""
+	case "$framework" in
+	"bats")
+	suite_name=$(json_get "$suite_json" '.name // .file // empty')
+	;;
+	"rust")
+	suite_name=$(json_get "$suite_json" '.name // .module // empty')
+	;;
+	*)
+	suite_name=$(json_get "$suite_json" '.name // empty')
+	;;
+	esac
+
+	# If no name found, generate one from path
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+	local file_path
+	file_path=$(json_get "$suite_json" '.file // .path // empty')
+	if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+	suite_name=$(basename "$file_path" | sed 's/\.[^.]*$//')
+	fi
+	fi
+
+	echo "$suite_name"
+}
+
+# Helper: Extract test files from JSON
+_parse_extract_test_files() {
+	local suite_json="$1"
+	local framework="$2"
+
+	local test_files=""
+	case "$framework" in
+	"bats")
+	test_files=$(json_get "$suite_json" '.file // empty')
+	;;
+	"rust")
+	test_files=$(json_get "$suite_json" '.file // .path // empty')
+	;;
+	*)
+	test_files=$(json_get "$suite_json" '.file // .path // empty')
+	;;
+	esac
+
+	echo "$test_files"
+}
+
+# Helper: Count tests in test files
+_parse_count_tests() {
+	local test_files="$1"
+	local framework="$2"
+	local project_root="$3"
+
+	local total_tests=0
+
+	# Split test_files if it's a JSON array
+	if [[ "$test_files" == "["* ]]; then
+	local file_count
+	file_count=$(json_array_length "$test_files")
+	for ((i=0; i<file_count; i++)); do
+	local file_path
+	file_path=$(json_get "$test_files" ".[$i]")
+	if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+	local test_count
+	test_count=$(_parse_count_tests_in_file "$file_path" "$framework" "$project_root")
+	((total_tests += test_count))
+	fi
+	done
+	else
+	# Single file
+	local test_count
+	test_count=$(_parse_count_tests_in_file "$test_files" "$framework" "$project_root")
+	total_tests=$test_count
+	fi
+
+	echo "$total_tests"
+}
+
+# Helper: Count tests in a single file
+_parse_count_tests_in_file() {
+	local file_path="$1"
+	local framework="$2"
+	local project_root="$3"
+
+	if [[ ! -f "$file_path" ]]; then
+	echo "0"
+	return
+	fi
+
+	case "$framework" in
+	"bats")
+	# Count @test lines
+	grep -c '^@test' "$file_path" 2>/dev/null || echo "0"
+	;;
+	"rust")
+	# Count #[test] attributes
+	grep -c '#\[test\]' "$file_path" 2>/dev/null || echo "0"
+	;;
+	*)
+	# Default: count lines that look like test functions
+	grep -c '^test\|^fn test' "$file_path" 2>/dev/null || echo "0"
+	;;
+	esac
+}
+
+# Helper: Register test adapters
+_detect_register_test_adapters() {
+	# Register adapters for test frameworks
+	adapter_registry_register "bats"
+	adapter_registry_register "rust"
+}
+
+# Helper: Process adapter detection
+_detect_process_adapter() {
+	local adapter="$1"
+
+	# Check if adapter detection function exists
+	if command -v "${adapter}_adapter_detect" >/dev/null 2>&1; then
+	# Call detection function
+	local detection_result
+	if detection_result=$("${adapter}_adapter_detect" "$PROJECT_ROOT" 2>/dev/null); then
+	# Parse detection result (should be JSON)
+	local detected
+	detected=$(json_get "$detection_result" '.detected // false')
+	if [[ "$detected" == "true" ]]; then
+	local framework_info
+	framework_info=$(json_get "$detection_result" '.framework_info // {}')
+	DETECTED_FRAMEWORKS+=("$adapter")
+	echo "detected $adapter" >&2
+	return 0
+	fi
+	fi
+	fi
+	return 1
+}
+
+# Helper: Process framework metadata
+_detect_process_framework_metadata() {
+	local adapter="$1"
+	local project_root="$2"
+	local adapter_metadata_func="${adapter}_adapter_get_metadata"
+	local adapter_binary_func="${adapter}_adapter_check_binaries"
+
+	local metadata_json
+	metadata_json=$("$adapter_metadata_func" "$project_root")
+	echo "metadata $adapter" >&2
+
+	echo "binary check $adapter" >&2
+	echo "check_binaries $adapter" >&2
+	local binary_available=false
+	if "$adapter_binary_func"; then
+		binary_available=true
+	fi
+
+	echo "$metadata_json"
+	echo "$binary_available"
+}
+
+# Helper: Store detection results
+_detect_store_results() {
+	local detected_frameworks=("$@")
+
+	# Convert to JSON array
+	local json_array="[]"
+	for framework in "${detected_frameworks[@]}"; do
+	json_array=$(json_merge "$json_array" "[\"$framework\"]")
+	done
+
+	DETECTED_FRAMEWORKS_JSON="$json_array"
+}
+
+# Helper: Split JSON array into individual objects
+_parse_split_json_array() {
+	local json_array="$1"
+
+	# Remove outer brackets and split by "},{" to get individual objects
+	# Remove leading "[" and trailing "]"
+	local json_content="${json_array#[}"
+	json_content="${json_content%]}"
+
+	# If no content left, return empty
+	if [[ -z "$json_content" ]]; then
+		return 0
+	fi
+
+	# Split by "},{" to get individual suite objects
+	if [[ "$json_content" == *"},{"* ]]; then
+		# Multiple objects - use sed to split properly
+		while IFS= read -r line; do
+			echo "$line"
+		done < <(echo "$json_content" | sed 's/},{/}\n{/g')
+	else
+		# Single object
+		echo "$json_content"
+	fi
+}
+
+# Helper: Extract suite data from JSON object
+_parse_extract_suite_data() {
+	local suite_obj="$1"
+	local framework="$2"
+
+	suite_obj="${suite_obj#\{}"
+	suite_obj="${suite_obj%\}}"
+	[[ -z "$suite_obj" ]] && return 1
+
+	local suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
+	[[ -z "$suite_name" ]] && echo "WARNING: Could not parse suite name from $framework JSON object" >&2 && return 1
+
+	local test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
+	[[ -z "$test_files_part" ]] && \
+		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
+
+	test_files_part="${test_files_part#[}"
+	test_files_part="${test_files_part%]}"
+
+	local test_files=()
+	if [[ -n "$test_files_part" ]]; then
+		IFS=',' read -ra test_files <<< "$test_files_part"
+		for i in "${!test_files[@]}"; do
+			test_files[i]="${test_files[i]#\"}"
+			test_files[i]="${test_files[i]%\"}"
+			test_files[i]="${test_files[i]//[[:space:]]/}"
+		done
+	fi
+
+	[[ ${#test_files[@]} -eq 0 ]] && echo "WARNING: No test files found in $framework suite '$suite_name'" >&2 && return 1
+
+	echo "$suite_name"
+	printf '%s\n' "${test_files[@]}"
+}
+
+# Helper: Count tests in suite
+_parse_count_tests_in_suite() {
+	local framework="$1"
+	local project_root="$2"
+	shift 2
+	local test_files=("$@")
+
+	local total_test_count=0
+	for test_file in "${test_files[@]}"; do
+		if [[ -n "$test_file" ]]; then
+			local abs_path="$project_root/$test_file"
+			local file_test_count=0
+
+			# Call framework-specific counting function
+			case "$framework" in
+			"bats")
+			file_test_count=$(count_bats_tests "$abs_path")
+			;;
+			"rust")
+			file_test_count=$(count_rust_tests "$abs_path")
+			;;
+			*)
+			# Default: assume no tests
+			file_test_count=0
+			;;
+			esac
+
+			total_test_count=$((total_test_count + file_test_count))
+		fi
+	done
+
+	echo "$total_test_count"
+}
+
+# Helper: Format suite output
+_parse_format_suite_output() {
+	local framework="$1"
+	local suite_name="$2"
+	local project_root="$3"
+	local first_test_file="$4"
+	local total_test_count="$5"
+
+	local abs_file_path="$project_root/$first_test_file"
+
+	# Output in DISCOVERED_SUITES format: framework|suite_name|file_path|rel_path|test_count
+	echo "$framework|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
+}
+
 # Parse JSON array of test suites and convert to DISCOVERED_SUITES format
 # Arguments:
 #   json_array: JSON array string containing test suite objects
@@ -94,122 +379,36 @@ parse_test_suites_json() {
 	local framework="$2"
 	local project_root="$3"
 
-	# Handle empty or null JSON
 	if [[ -z "$json_array" || "$json_array" == "[]" ]]; then
-	return 0
+		return 0
 	fi
 
-	# Basic JSON validation - must start with [ and end with ]
 	if [[ "$json_array" != \[*\] ]]; then
-	# documented: Framework detection result is malformed JSON
-	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
-	return 1
+		echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
+		return 1
 	fi
 
-	# Remove outer brackets and split by "},{" to get individual objects
-	# Remove leading "[" and trailing "]"
-	local json_content="${json_array#[}"
-	json_content="${json_content%]}"
-
-	# If no content left, return empty
-	if [[ -z "$json_content" ]]; then
-	return 0
-	fi
-
-	# Split by "},{" to get individual suite objects
 	local suite_objects
-	if [[ "$json_content" == *"},{"* ]]; then
-	# Multiple objects - use sed to split properly
-	suite_objects=()
-	while IFS= read -r line; do
-	suite_objects+=("$line")
-	done < <(echo "$json_content" | sed 's/},{/}\n{/g')
-	else
-	# Single object
-	suite_objects=("$json_content")
-	fi
+	suite_objects=$(_parse_split_json_array "$json_array")
 
-	# Process each suite object
-	for suite_obj in "${suite_objects[@]}"; do
-	# Clean up the object (remove leading/trailing braces if present)
-	suite_obj="${suite_obj#\{}"
-	suite_obj="${suite_obj%\}}"
+	while IFS= read -r suite_obj; do
+		if [[ -z "$suite_obj" ]]; then
+			continue
+		fi
+		local suite_data
+		suite_data=$(_parse_extract_suite_data "$suite_obj" "$framework")
+		if [[ $? -ne 0 ]]; then
+			continue
+		fi
 
-	# Skip empty objects
-	if [[ -z "$suite_obj" ]]; then
-	continue
-	fi
+		local suite_name=$(echo "$suite_data" | head -1)
+		local test_files=()
+		mapfile -t test_files < <(echo "$suite_data" | tail -n +2)
 
-	# Extract suite name using grep/sed (more reliable than regex)
-	local suite_name=""
-	suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
-	if [[ -z "$suite_name" ]]; then
-	echo "WARNING: Could not parse suite name from $framework JSON object" >&2
-	continue
-	fi
-
-	# Extract test_files array using grep/sed
-	local test_files_part=""
-	test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
-	if [[ -z "$test_files_part" ]]; then
-	echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2
-	continue
-	fi
-
-	# Parse test files from the array - remove brackets and split by comma
-	test_files_part="${test_files_part#[}"
-	test_files_part="${test_files_part%]}"
-
-	local test_files=()
-	if [[ -n "$test_files_part" ]]; then
-	# Split by comma and clean up quotes
-	IFS=',' read -ra test_files <<< "$test_files_part"
-	for i in "${!test_files[@]}"; do
-	test_files[i]="${test_files[i]#\"}"
-	test_files[i]="${test_files[i]%\"}"
-	test_files[i]="${test_files[i]//[[:space:]]/}"  # Remove spaces
-	done
-	fi
-
-	# Skip if no test files
-	if [[ ${#test_files[@]} -eq 0 ]]; then
-	echo "WARNING: No test files found in $framework suite '$suite_name'" >&2
-	continue
-	fi
-
-	# Calculate total test count across all files
-	local total_test_count=0
-	for test_file in "${test_files[@]}"; do
-	if [[ -n "$test_file" ]]; then
-	local abs_path="$project_root/$test_file"
-	local file_test_count=0
-
-	# Call framework-specific counting function
-	case "$framework" in
-	"bats")
-	file_test_count=$(count_bats_tests "$abs_path")
-	;;
-	"rust")
-	file_test_count=$(count_rust_tests "$abs_path")
-	;;
-	*)
-	# Default: assume no tests
-	file_test_count=0
-	;;
-	esac
-
-	total_test_count=$((total_test_count + file_test_count))
-	fi
-	done
-
-	# Use the first test file for the file_path and rel_path in the output
-	# (following the pattern of existing adapters)
-	local first_test_file="${test_files[0]}"
-	local abs_file_path="$project_root/$first_test_file"
-
-	# Output in DISCOVERED_SUITES format: framework|suite_name|file_path|rel_path|test_count
-	echo "$framework|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
-	done
+		local total_test_count
+		total_test_count=$(_parse_count_tests_in_suite "$framework" "$project_root" "${test_files[@]}")
+		_parse_format_suite_output "$framework" "$suite_name" "$project_root" "${test_files[0]}" "$total_test_count"
+	done <<< "$suite_objects"
 }
 
 # ============================================================================
@@ -219,111 +418,52 @@ parse_test_suites_json() {
 # Core framework detection function
 detect_frameworks() {
 	local project_root="$1"
-
-	# Initialize result arrays (use arrays internally, convert to JSON at output)
 	local -a detected_frameworks_array=()
 	local -A framework_details_map=()
 	local -A binary_status_map=()
 	local -a warnings_array=()
 	local -a errors_array=()
 
-	# Get adapters from registry
 	echo "using adapter registry" >&2
+	_detect_register_test_adapters
 
-	# Register any test adapters that are available (for testing)
-	local potential_adapters=(
-		"comprehensive_adapter" "mock_detector_adapter" "failing_adapter"
-		"binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter"
-		"iter_adapter1" "iter_adapter2" "iter_adapter3"
-		"skip_adapter1" "skip_adapter2" "skip_adapter3"
-		"metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter"
-		"workflow_adapter1" "workflow_adapter2"
-		"results_adapter1" "results_adapter2"
-		"validation_adapter1" "validation_adapter2"
-		"image_test_adapter" "no_build_adapter"
-	)
-	for adapter_name in "${potential_adapters[@]}"; do
-	# Try to source the adapter if it exists
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && \
-		[[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
-	source "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" >/dev/null 2>&1 || true
-	fi
-	# Try to register regardless
-	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
-	done
-
-	local adapters_json
-	adapters_json=$(adapter_registry_get_all)
-
-	# Parse JSON array: ["bats","rust"] -> bats rust
+	local adapters_json=$(adapter_registry_get_all)
 	local adapters=()
 	if [[ "$adapters_json" != "[]" ]]; then
-	# Remove brackets and quotes, split by comma
-	adapters_json=$(echo "$adapters_json" | sed 's/^\[//' | sed 's/\]$//' | sed 's/"//g')
-	IFS=',' read -ra adapters <<< "$adapters_json"
-	fi
-	# If registry is empty, adapters array remains empty - no frameworks detected
-
-	# Check if no adapters are available
-	if [[ ${#adapters[@]} -eq 0 ]]; then
-	echo "no adapters" >&2
+		adapters_json=$(echo "$adapters_json" | sed 's/^\[//' | sed 's/\]$//' | sed 's/"//g')
+		IFS=',' read -ra adapters <<< "$adapters_json"
 	fi
 
-	# Iterate through registered adapters from registry
+	[[ ${#adapters[@]} -eq 0 ]] && echo "no adapters" >&2
+
 	for adapter in "${adapters[@]}"; do
-	local adapter_detect_func="${adapter}_adapter_detect"
-	local adapter_metadata_func="${adapter}_adapter_get_metadata"
-	local adapter_binary_func="${adapter}_adapter_check_binaries"
+		local adapter_detect_func="${adapter}_adapter_detect"
+		! command -v "$adapter_detect_func" >/dev/null 2>&1 && continue
 
-	# Check if adapter detection function exists
-	if ! command -v "$adapter_detect_func" >/dev/null 2>&1; then
-	continue
-	fi
+		echo "detected $adapter" >&2
+		echo "registry detect $adapter" >&2
+		if "$adapter_detect_func" "$project_root"; then
+			detected_frameworks_array+=("$adapter")
+			echo "processed $adapter" >&2
 
-	# Run detection
-	echo "detected $adapter" >&2
-	echo "registry detect $adapter" >&2
-	if "$adapter_detect_func" "$project_root"; then
-	# Framework detected, add to list
-	detected_frameworks_array+=("$adapter")
-	echo "processed $adapter" >&2
+			local metadata_result=$(_detect_process_framework_metadata "$adapter" "$project_root")
+			local metadata_json=$(echo "$metadata_result" | head -1)
+			local binary_available=$(echo "$metadata_result" | tail -1)
 
-	# Get framework metadata
-	local metadata_json
-	metadata_json=$("$adapter_metadata_func" "$project_root")
-	echo "metadata $adapter" >&2
+			framework_details_map["$adapter"]="$metadata_json"
+			binary_status_map["$adapter"]="$binary_available"
 
-	# Check binary availability
-	echo "binary check $adapter" >&2
-	echo "check_binaries $adapter" >&2
-	local binary_available=false
-	if "$adapter_binary_func"; then
-	binary_available=true
-	fi
-
-	# Store in arrays (convert to JSON only at output)
-	framework_details_map["$adapter"]="$metadata_json"
-	binary_status_map["$adapter"]="$binary_available"
-
-	# Generate warning if binary is not available
-	if [[ "$binary_available" == "false" ]]; then
-	local warning_msg="$adapter binary is not available"
-	warnings_array+=("$warning_msg")
-	fi
-	else
-	# Adapter detection failed - log for test verification
-	echo "skipped $adapter" >&2
-	fi
+			[[ "$binary_available" == "false" ]] && warnings_array+=("$adapter binary is not available")
+		else
+			echo "skipped $adapter" >&2
+		fi
 	done
 
-	# Store results in global variables (convert arrays to JSON)
 	DETECTED_FRAMEWORKS_JSON=$(array_to_json detected_frameworks_array)
 	FRAMEWORK_DETAILS_JSON=$(assoc_array_to_json framework_details_map)
 	BINARY_STATUS_JSON=$(assoc_array_to_json binary_status_map)
 	FRAMEWORK_WARNINGS_JSON=$(array_to_json warnings_array)
 	FRAMEWORK_ERRORS_JSON=$(array_to_json errors_array)
-
-	# Test integration marker
 	echo "orchestrated framework detector" >&2
 	echo "detection phase completed" >&2
 }

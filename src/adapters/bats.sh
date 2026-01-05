@@ -152,77 +152,125 @@ bats_adapter_get_detection_method() {
 	echo "unknown"
 }
 
+# Helper: Discover test directories
+_bats_discover_test_directories() {
+	local project_root="$1"
+	local test_dirs=(
+		"$project_root/tests/bats"
+		"$project_root/test/bats"
+		"$project_root/tests"
+		"$project_root/test"
+	)
+	local bats_files=()
+	local seen_files=()
+
+	for dir in "${test_dirs[@]}"; do
+		if [[ -d "$dir" ]]; then
+			local found_files
+			found_files=$(find_bats_files "$dir")
+			if [[ -n "$found_files" ]]; then
+				while IFS= read -r file; do
+					if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+						bats_files+=("$file")
+						seen_files+=("$(normalize_path "$file")")
+					fi
+				done <<< "$found_files"
+			fi
+		fi
+	done
+
+	# Output files first, then seen_files
+	printf '%s\n' "${bats_files[@]}"
+	printf '%s\n' "${seen_files[@]}"
+}
+
+# Helper: Discover root files
+_bats_discover_root_files() {
+	local project_root="$1"
+	local -a test_dirs=("$@")  # Remaining args are test_dirs
+	local -a seen_files=()     # Next arg should be seen_files
+	local shift_count=$(( ${#test_dirs[@]} + 1 ))
+	shift "$shift_count"
+
+	local root_files
+	root_files=$(find_bats_files "$project_root")
+	local root_bats_files=()
+
+	if [[ -n "$root_files" ]]; then
+		while IFS= read -r file; do
+			if [[ -n "$file" ]]; then
+				# Skip if file is in a test directory we already scanned
+				local skip=0
+				for test_dir in "${test_dirs[@]}"; do
+					if [[ "$file" == "$test_dir"/* ]]; then
+						skip=1
+						break
+					fi
+				done
+
+				if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+					root_bats_files+=("$file")
+				fi
+			fi
+		done <<< "$root_files"
+	fi
+
+	printf '%s\n' "${root_bats_files[@]}"
+}
+
+# Helper: Build suites JSON
+_bats_build_suites_json() {
+	local project_root="$1"
+	shift
+	local bats_files=("$@")
+
+	if [[ ${#bats_files[@]} -eq 0 ]]; then
+		echo "[]"
+		return
+	fi
+
+	local suites_json="["
+	for file in "${bats_files[@]}"; do
+		local rel_path="${file#$project_root/}"
+		rel_path="${rel_path#/}"
+		local suite_name=$(generate_suite_name "$file" "bats")
+		local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
+
+		suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
+			"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	done
+	suites_json="${suites_json%,}]"
+
+	echo "$suites_json"
+}
+
 # BATS adapter discover test suites method
 bats_adapter_discover_test_suites() {
 	local project_root="$1"
 	local framework_metadata="$2"
 
-	# Use existing discovery logic to populate DISCOVERED_SUITES
-	# Discover BATS test suites using adapter pattern
-	local bats_files=()
-	local seen_files=()
-
-	# Check common BATS directory patterns (in order of specificity)
+	local discovery_results
+	discovery_results=$(_bats_discover_test_directories "$project_root")
 	local test_dirs=(
-	"$project_root/tests/bats"
-	"$project_root/test/bats"
-	"$project_root/tests"
-	"$project_root/test"
+		"$project_root/tests/bats"
+		"$project_root/test/bats"
+		"$project_root/tests"
+		"$project_root/test"
 	)
 
-	# Scan for .bats files in common directories
-	for dir in "${test_dirs[@]}"; do
-	if [[ -d "$dir" ]]; then
-	local found_files
-	found_files=$(find_bats_files "$dir")
-	if [[ -n "$found_files" ]]; then
-	while IFS= read -r file; do
-	if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-	bats_files+=("$file")
-	seen_files+=("$(normalize_path "$file")")
-	fi
-	done <<< "$found_files"
-	fi
-	fi
-	done
+	local all_bats_files=()
+	local seen_files=()
+	mapfile -t all_bats_files < <(echo "$discovery_results" | head -4)
+	mapfile -t seen_files < <(echo "$discovery_results" | tail -n +5)
 
-	# Also scan project root for .bats files (but exclude files already found in test dirs)
 	local root_files
-	root_files=$(find_bats_files "$project_root")
-	if [[ -n "$root_files" ]]; then
-	while IFS= read -r file; do
-	if [[ -n "$file" ]]; then
-	# Skip if file is in a test directory we already scanned
-	local skip=0
-	for test_dir in "${test_dirs[@]}"; do
-	if [[ "$file" == "$test_dir"/* ]]; then
-	skip=1
-	break
-	fi
-	done
+	root_files=$(_bats_discover_root_files "$project_root" "${test_dirs[@]}" "${seen_files[@]}")
+	local root_bats_files=()
+	mapfile -t root_bats_files < <(echo "$root_files")
 
-	if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-	bats_files+=("$file")
-	seen_files+=("$(normalize_path "$file")")
-	fi
-	fi
-	done <<< "$root_files"
-	fi
+	all_bats_files+=("${root_bats_files[@]}")
 
-	# Return JSON format as expected by interface
-	local suites_json="["
-	for file in "${bats_files[@]}"; do
-	local rel_path="${file#$project_root/}"
-	rel_path="${rel_path#/}"
-	local suite_name=$(generate_suite_name "$file" "bats")
-	local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
-
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
-		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
-	done
-	suites_json="${suites_json%,}]"
-
-	echo "$suites_json"
+	_bats_build_suites_json "$project_root" "${all_bats_files[@]}"
 }
 
 # BATS adapter detect build requirements method

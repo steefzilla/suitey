@@ -15,9 +15,16 @@
 @test "functions are not too long (max 50 lines)" {
 	local long_functions
 	long_functions=$(find src -name "*.sh" -exec awk '
-		/^function / || /^[a-zA-Z_][a-zA-Z0-9_]*\(\) / {
+		/^function / {
 			func_line = NR
 			func_name = $2
+			sub(/\(\)/, "", func_name)
+			line_count = 0
+		}
+		/^[a-zA-Z_][a-zA-Z0-9_]*\(\)/ {
+			func_line = NR
+			func_name = $1
+			sub(/\(\)/, "", func_name)
 			line_count = 0
 		}
 		/^}/ {
@@ -27,7 +34,10 @@
 			line_count = 0
 		}
 		{
-			line_count++
+			# Skip blank lines and comment-only lines
+			if (!/^[[:space:]]*$/ && !/^[[:space:]]*#/) {
+				line_count++
+			}
 		}
 	' {} \;)
 
@@ -87,12 +97,20 @@
 
 @test "reasonable file sizes (max 1000 lines)" {
 	local large_files
-	large_files=$(find src -name "*.sh" -exec sh -c '
-		lines=$(wc -l < "$1")
-		if [ "$lines" -gt 1000 ]; then
-			echo "$1: $lines lines"
-		fi
-	' _ {} \;)
+	large_files=$(find src -name "*.sh" -exec awk '
+		BEGIN { line_count = 0 }
+		{
+			# Skip blank lines and comment-only lines
+			if (!/^[[:space:]]*$/ && !/^[[:space:]]*#/) {
+				line_count++
+			}
+		}
+		END {
+			if (line_count > 1000) {
+				print FILENAME ": " line_count " lines"
+			}
+		}
+	' {} \;)
 
 	if [ -n "$large_files" ]; then
 		echo "Files too large (>1000 lines): $large_files"

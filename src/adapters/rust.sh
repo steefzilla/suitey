@@ -143,23 +143,12 @@ rust_adapter_get_detection_method() {
 	echo "unknown"
 }
 
-# Rust adapter discover test suites method
-rust_adapter_discover_test_suites() {
-	local project_root="$1"
-	local framework_metadata="$2"
-
-	# Only discover Rust test suites if Cargo.toml exists
-	if [[ ! -f "$project_root/Cargo.toml" ]]; then
-	echo "[]"
-	return 0
-	fi
-
-	local src_dir="$project_root/src"
-	local tests_dir="$project_root/tests"
+# Helper: Discover unit tests in src directory
+_rust_discover_unit_tests() {
+	local src_dir="$1"
+	local project_root="$2"
 	local rust_files=()
-	local json_files=()
 
-	# Discover unit tests in src/ directory
 	if [[ -d "$src_dir" ]]; then
 	local src_files
 	src_files=$(find_rust_test_files "$src_dir")
@@ -167,24 +156,38 @@ rust_adapter_discover_test_suites() {
 	while IFS= read -r file; do
 	if [[ -n "$file" ]] && grep -q '#\[cfg(test)\]' "$file" 2>/dev/null; then
 	rust_files+=("$file")
-	json_files+=("$file")
 	fi
 	done <<< "$src_files"
 	fi
 	fi
 
-	# Discover integration tests in tests/ directory
+	echo "${rust_files[@]}"
+}
+
+# Helper: Discover integration tests in tests directory
+_rust_discover_integration_tests() {
+	local tests_dir="$1"
+	local rust_files=()
+
 	if [[ -d "$tests_dir" ]]; then
 	local integration_files
 	integration_files=$(find_rust_test_files "$tests_dir")
 	if [[ -n "$integration_files" ]]; then
 	while IFS= read -r file; do
-	[[ -n "$file" ]] && rust_files+=("$file") && json_files+=("$file")
+	[[ -n "$file" ]] && rust_files+=("$file")
 	done <<< "$integration_files"
 	fi
 	fi
 
-	# Return JSON format as expected by interface
+	echo "${rust_files[@]}"
+}
+
+# Helper: Build JSON for discovered test suites
+_rust_build_test_suites_json() {
+	local project_root="$1"
+	shift
+	local json_files=("$@")
+
 	local suites_json="["
 	for file in "${json_files[@]}"; do
 	local rel_path="${file#$project_root/}"
@@ -198,6 +201,38 @@ rust_adapter_discover_test_suites() {
 	suites_json="${suites_json%,}]"
 
 	echo "$suites_json"
+}
+
+# Rust adapter discover test suites method
+rust_adapter_discover_test_suites() {
+	local project_root="$1"
+	local framework_metadata="$2"
+
+	# Only discover Rust test suites if Cargo.toml exists
+	if [[ ! -f "$project_root/Cargo.toml" ]]; then
+	echo "[]"
+	return 0
+	fi
+
+	local src_dir="$project_root/src"
+	local tests_dir="$project_root/tests"
+
+	# Discover test files using helpers
+	local unit_tests
+	unit_tests=$(_rust_discover_unit_tests "$src_dir" "$project_root")
+
+	local integration_tests
+	integration_tests=$(_rust_discover_integration_tests "$tests_dir")
+
+	# Combine all test files
+	local all_test_files=($unit_tests $integration_tests)
+
+	# Build JSON output using helper
+	if [[ ${#all_test_files[@]} -eq 0 ]]; then
+	echo "[]"
+	else
+	_rust_build_test_suites_json "$project_root" "${all_test_files[@]}"
+	fi
 }
 
 # Rust adapter detect build requirements method

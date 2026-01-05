@@ -23,6 +23,156 @@ elif [[ -f "../src/json_helpers.sh" ]]; then
 	source "../src/json_helpers.sh"
 fi
 
+# Helper: Register test adapters
+_scan_register_test_adapters() {
+	# Register adapters for test frameworks
+	adapter_registry_register "bats"
+	adapter_registry_register "rust"
+}
+
+# Helper: Process detected framework
+_scan_process_framework() {
+	local framework="$1"
+	local framework_details="$2"
+
+	# Extract framework information
+	local framework_name
+	framework_name=$(json_get "$framework_details" ".framework")
+	local test_suites
+	test_suites=$(json_get "$framework_details" ".test_suites")
+
+	# Validate test suites exist
+	if [[ -z "$test_suites" ]] || [[ "$test_suites" == "null" ]]; then
+		echo "WARNING: Framework $framework_name has no test suites" >&2
+		return
+	fi
+
+	# Generate build requirements for this framework
+	local build_requirements
+	build_requirements=$(adapter_registry_get "$framework_name")
+
+	if [[ -z "$build_requirements" ]]; then
+		echo "WARNING: No build requirements found for framework $framework_name" >&2
+		return
+	fi
+
+	# Add to detected frameworks
+	local framework_info
+	framework_info=$(json_set "{}" ".framework" "\"$framework_name\"")
+	framework_info=$(json_set "$framework_info" ".build_requirements" "$build_requirements")
+	framework_info=$(json_set "$framework_info" ".test_suites" "$test_suites")
+
+	detected_frameworks=$(json_merge "$detected_frameworks" "[$framework_info]")
+}
+
+# Helper: Parse frameworks JSON
+_scan_parse_frameworks_json() {
+	local detected_list="$1"
+	local frameworks=()
+	if [[ "$detected_list" != "[]" ]]; then
+		detected_list=$(echo "$detected_list" | sed 's/^\[//' | sed 's/\]$//')
+		IFS=',' read -ra frameworks <<< "$detected_list"
+		for i in "${!frameworks[@]}"; do
+			frameworks[i]=$(echo "${frameworks[i]}" | sed 's/^"//' | sed 's/"$//')
+		done
+	fi
+	printf '%s\n' "${frameworks[@]}"
+}
+
+# Helper: Process framework discovery
+_scan_process_framework_discovery() {
+	local framework="$1"
+	local project_root="$2"
+	local adapter_metadata
+	adapter_metadata=$(adapter_registry_get "$framework")
+
+	if [[ "$adapter_metadata" == "null" ]]; then
+		echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$framework'" >&2
+		return 1
+	fi
+
+	echo "validated $framework" >&2
+	echo "registry integration verified for $framework" >&2
+	DETECTED_FRAMEWORKS+=("$framework")
+	PROCESSED_FRAMEWORKS+=("$framework")
+
+	local display_name="$framework"
+	case "$framework" in
+	"bats") display_name="BATS" ;;
+	"rust") display_name="Rust" ;;
+	esac
+
+	echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
+	echo "processed $framework" >&2
+	echo "continue processing frameworks" >&2
+
+	echo "registry discover_test_suites $framework" >&2
+	echo "discover_test_suites $framework" >&2
+	local suites_json
+	if suites_json=$("${framework}_adapter_discover_test_suites" "$project_root" "$adapter_metadata" 2>/dev/null); then
+		local parsed_suites=()
+		mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$project_root")
+		for suite_entry in "${parsed_suites[@]}"; do
+			DISCOVERED_SUITES+=("$suite_entry")
+		done
+	else
+		echo "failed discovery $framework" >&2
+	fi
+
+	echo "aggregated $framework" >&2
+	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
+		echo "discovered suites for $framework" >&2
+		echo "test files found for $framework" >&2
+	fi
+	return 0
+}
+
+# Helper: Format framework output
+_output_format_frameworks() {
+	if [[ ${#DETECTED_FRAMEWORKS[@]} -eq 0 ]]; then
+		echo -e "${RED}✗${NC} No test frameworks detected" >&2
+		echo "" >&2
+		echo "No test suites found in this project." >&2
+		echo "" >&2
+		echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
+		echo "" >&2
+		echo "To use Suitey, ensure your project has:" >&2
+		echo "  - Test files with .bats extension" >&2
+		echo "  - Test files in common directories: tests/, test/, tests/bats/, etc." >&2
+		echo "  - Rust projects with Cargo.toml and test files in src/ or tests/ directories" >&2
+		exit 2
+	fi
+}
+
+# Helper: Format suites output
+_output_format_suites() {
+	if [[ ${#DISCOVERED_SUITES[@]} -eq 0 ]]; then
+		echo -e "${RED}✗${NC} No test suites found" >&2
+		echo "" >&2
+
+		if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
+			echo "Errors:" >&2
+			for error in "${SCAN_ERRORS[@]}"; do
+				echo -e "  ${RED}•${NC} $error" >&2
+			done
+			echo "" >&2
+		fi
+
+		echo "No test suites were discovered in this project." >&2
+		echo "" >&2
+		echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
+		exit 2
+	fi
+
+	echo "Test Suites:" >&2
+	for suite in "${DISCOVERED_SUITES[@]}"; do
+		IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
+		echo -e "  ${BLUE}•${NC} $suite_name - $framework" >&2
+		echo "    Path: $rel_path" >&2
+		echo "    Tests: $test_count" >&2
+	done
+}
+
 # Scan project for test frameworks and suites
 scan_project() {
 	echo "Scanning project: $PROJECT_ROOT" >&2
@@ -31,16 +181,8 @@ scan_project() {
 	# Initialize adapter registry for orchestration
 	adapter_registry_initialize
 
-	# Register any test adapters that are available (for testing)
-	local potential_adapters=(
-		"comprehensive_adapter" "results_adapter1" "results_adapter2"
-		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
-	)
-	for adapter_name in "${potential_adapters[@]}"; do
-	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
-	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
-	fi
-	done
+	# Register test adapters using helper
+	_scan_register_test_adapters
 
 	# Test integration marker
 	echo "detection phase then discovery phase" >&2
@@ -48,76 +190,11 @@ scan_project() {
 	# Use Framework Detector to detect frameworks
 	detect_frameworks "$PROJECT_ROOT"
 
-	# Parse detected frameworks from JSON and discover suites
-	# Extract framework list from JSON (simple parsing for backward compatibility)
-	local detected_list="$DETECTED_FRAMEWORKS_JSON"
-	local frameworks=()
-	if [[ "$detected_list" != "[]" ]]; then
-	# Remove brackets and split by comma using sed
-	detected_list=$(echo "$detected_list" | sed 's/^\[//' | sed 's/\]$//')
-	# Split by comma and remove quotes
-	IFS=',' read -ra frameworks <<< "$detected_list"
-	for i in "${!frameworks[@]}"; do
-	frameworks[i]=$(echo "${frameworks[i]}" | sed 's/^"//' | sed 's/"$//')
-	done
-	fi
+	local frameworks
+	frameworks=$(_scan_parse_frameworks_json "$DETECTED_FRAMEWORKS_JSON")
 
-	for framework in "${frameworks[@]}"; do
-	# Get adapter metadata from registry
-	local adapter_metadata
-	adapter_metadata=$(adapter_registry_get "$framework")
-
-	if [[ "$adapter_metadata" == "null" ]]; then
-	echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$framework'" >&2
-	continue
-	fi
-
-	# Test integration markers
-	echo "validated $framework" >&2
-	echo "registry integration verified for $framework" >&2
-
-	# Add to detected frameworks
-	DETECTED_FRAMEWORKS+=("$framework")
-
-	# Track all processed frameworks (for test assertions)
-	PROCESSED_FRAMEWORKS+=("$framework")
-
-	# Capitalize framework name for display
-	local display_name="$framework"
-	case "$framework" in
-	"bats")
-	display_name="BATS"
-	;;
-	"rust")
-	display_name="Rust"
-	;;
-	esac
-
-	echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
-	echo "processed $framework" >&2
-	echo "continue processing frameworks" >&2
-
-	# Use adapter discovery methods for all frameworks
-	echo "registry discover_test_suites $framework" >&2
-	echo "discover_test_suites $framework" >&2
-	local suites_json
-	if suites_json=$("${framework}_adapter_discover_test_suites" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
-	# Parse JSON and convert to DISCOVERED_SUITES format
-	local parsed_suites=()
-	mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$PROJECT_ROOT")
-	for suite_entry in "${parsed_suites[@]}"; do
-	DISCOVERED_SUITES+=("$suite_entry")
-	done
-	else
-	echo "failed discovery $framework" >&2
-	fi
-
-	# Add test markers that assertions expect
-	echo "aggregated $framework" >&2
-	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
-	echo "discovered suites for $framework" >&2
-	echo "test files found for $framework" >&2
-	fi
+	for framework in $frameworks; do
+	_scan_process_framework_discovery "$framework" "$PROJECT_ROOT"
 	done
 
 	# Test integration marker
@@ -125,17 +202,13 @@ scan_project() {
 	echo "discovery phase completed" >&2
 	echo "discovery phase then build phase" >&2
 
-	# Check if any frameworks were detected
-	local framework_count="${#frameworks[@]}"
+	local framework_count=$(echo "$frameworks" | wc -l)
 	if [[ $framework_count -eq 0 ]]; then
 	echo -e "${YELLOW}⚠${NC} No test frameworks detected" >&2
 	fi
 
-	# Detect build requirements using adapters
-	detect_build_requirements "${frameworks[@]}"
-
-	# Test integration marker for test_image parameter
-	for framework in "${frameworks[@]}"; do
+	detect_build_requirements $(echo "$frameworks")
+	for framework in $frameworks; do
 	echo "test_image passed to $framework" >&2
 	done
 
@@ -269,49 +342,15 @@ test_suite_discovery_with_registry() {
 
 # Output scan results
 output_results() {
-	# Output detected frameworks
-	if [[ ${#DETECTED_FRAMEWORKS[@]} -eq 0 ]]; then
-	echo -e "${RED}✗${NC} No test frameworks detected" >&2
-	echo "" >&2
-	echo "No test suites found in this project." >&2
-	echo "" >&2
-	echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
-	echo "" >&2
-	echo "To use Suitey, ensure your project has:" >&2
-	echo "  - Test files with .bats extension" >&2
-	echo "  - Test files in common directories: tests/, test/, tests/bats/, etc." >&2
-	echo "  - Rust projects with Cargo.toml and test files in src/ or tests/ directories" >&2
-	exit 2
-	fi
+	_output_format_frameworks
+	_output_format_suites
 
-	# Output discovered test suites
-	if [[ ${#DISCOVERED_SUITES[@]} -eq 0 ]]; then
-	echo -e "${RED}✗${NC} No test suites found" >&2
-	echo "" >&2
-
-	if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
-	echo "Errors:" >&2  # documented: Displaying scan errors to user
-	for error in "${SCAN_ERRORS[@]}"; do
-	echo -e "  ${RED}•${NC} $error" >&2  # documented: Displaying individual scan error
-	done
-	echo "" >&2
-	fi
-
-	echo "No test suites were discovered in this project." >&2
-	echo "" >&2
-	echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
-	exit 2
-	fi
-
-	# Output scan summary
 	echo -e "${GREEN}✓${NC} Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
 	local suite_count=${#DISCOVERED_SUITES[@]}
 	echo -e "${GREEN}✓${NC} Discovered $suite_count test suite" >&2
 
-	# Output build requirements summary
 	if [[ -n "${BUILD_REQUIREMENTS_JSON:-}" && "$BUILD_REQUIREMENTS_JSON" != "{}" ]]; then
 	echo -e "${GREEN}✓${NC} Build requirements detected and aggregated from registry components" >&2
-	# Test integration markers
 	for framework in "${DETECTED_FRAMEWORKS[@]}"; do
 	echo "aggregated $framework" >&2
 	done
@@ -319,25 +358,14 @@ output_results() {
 
 	echo "" >&2
 
-	# Output errors if any
 	if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
 	echo -e "${YELLOW}⚠${NC} Warnings:" >&2
 	for error in "${SCAN_ERRORS[@]}"; do
-	echo -e "  ${YELLOW}•${NC} $error" >&2  # documented: Displaying individual scan warning
+	echo -e "  ${YELLOW}•${NC} $error" >&2
 	done
 	echo "" >&2
 	fi
 
-	# Output discovered test suites
-	echo "Test Suites:" >&2
-	for suite in "${DISCOVERED_SUITES[@]}"; do
-	IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
-	echo -e "  ${BLUE}•${NC} $suite_name - $framework" >&2
-	echo "    Path: $rel_path" >&2
-	echo "    Tests: $test_count" >&2
-	done
-
-	# Test integration markers
 	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
 	echo "unified results from registry-based components" >&2
 	for framework in "${PROCESSED_FRAMEWORKS[@]}"; do

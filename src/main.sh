@@ -43,96 +43,93 @@ EOF
 # Main Entry Point
 # ============================================================================
 
-main() {
-	# Check for subcommands
+# Helper: Parse arguments
+_main_parse_arguments() {
+	local project_root_arg=""
+	for arg in "$@"; do
+		case "$arg" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+		-*)
+			echo "Error: Unknown option: $arg" >&2
+			echo "Run 'suitey.sh --help' for usage information." >&2
+			exit 2
+			;;
+		*)
+			if [[ -z "$project_root_arg" ]]; then
+				project_root_arg="$arg"
+			else
+				echo "Error: Multiple project root arguments specified." >&2
+				echo "Run 'suitey.sh --help' for usage information." >&2
+				exit 2
+			fi
+			;;
+		esac
+	done
+	echo "${project_root_arg:-.}"
+}
 
-	# Check for test suite discovery subcommand
-	if [[ $# -gt 0 ]] && [[ "$1" == "test-suite-discovery-registry" ]]; then
+# Helper: Handle subcommand
+_main_handle_subcommand() {
+	local subcommand="$1"
 	shift
-	# Process PROJECT_ROOT argument
+	if [[ "$subcommand" == "test-suite-discovery-registry" ]]; then
+		local project_root_arg
+		project_root_arg=$(_main_parse_arguments "$@")
+		test_suite_discovery_with_registry "$project_root_arg"
+		exit 0
+	fi
+}
+
+# Helper: Handle help flags
+_main_handle_help() {
+	for arg in "$@"; do
+		case "$arg" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+		esac
+	done
+}
+
+main() {
+	if [[ $# -gt 0 ]] && [[ "$1" != -* ]]; then
+		_main_handle_subcommand "$@"
+	fi
+
+	_main_handle_help "$@"
+
 	local project_root_arg=""
 	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	show_help
-	exit 0
-	;;
-	-*)
-	# Unknown option
-	# documented: Invalid command-line option provided
-	echo "Error: Unknown option: $arg" >&2
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	;;
-	*)
-	# First non-flag argument is PROJECT_ROOT
-	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="$arg"
-	else
-	# documented: Only one project root directory allowed
-	echo "Error: Multiple project root arguments specified." >&2
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	fi
-	;;
-	esac
+		case "$arg" in
+		-h|--help)
+			;;
+		-*)
+			echo "Error: Unknown option: $arg" >&2
+			echo "Run 'suitey.sh --help' for usage information." >&2
+			exit 2
+			;;
+		*)
+			if [[ -z "$project_root_arg" ]]; then
+				project_root_arg="$arg"
+			else
+				echo "Error: Multiple project root arguments specified." >&2
+				echo "Run 'suitey.sh --help' for usage information." >&2
+				exit 2
+			fi
+			;;
+		esac
 	done
 
-	# If no PROJECT_ROOT argument provided, use current directory
 	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="."
+		show_help
+		exit 0
 	fi
 
-	# Call test suite discovery function
-	test_suite_discovery_with_registry "$project_root_arg"
-	exit 0
-	fi
-
-	# Check for help flags
-	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	show_help
-	exit 0
-	;;
-	esac
-	done
-
-	# Process PROJECT_ROOT argument (first non-flag argument)
-	local project_root_arg=""
-	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	# Already handled above
-	;;
-	-*)
-	# Unknown option
-	echo "Error: Unknown option: $arg" >&2  # documented: Invalid command-line option provided
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	;;
-	*)
-	# First non-flag argument is PROJECT_ROOT
-	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="$arg"
-	else
-	echo "Error: Multiple project root arguments specified." >&2  # documented: Only one project root directory allowed
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	fi
-	;;
-	esac
-	done
-
-	# If no PROJECT_ROOT argument provided, show help
-	if [[ -z "$project_root_arg" ]]; then
-	show_help
-	exit 0
-	fi
-
-	# Set PROJECT_ROOT
 	PROJECT_ROOT="$(cd "$project_root_arg" && pwd)"
-
 	scan_project
 	output_results
 }

@@ -23,6 +23,15 @@ elif [[ -f "../src/json_helpers.sh" ]]; then
 	source "../src/json_helpers.sh"
 fi
 
+# Source adapter registry helper functions
+if [[ -f "adapter_registry_helpers.sh" ]]; then
+	source "adapter_registry_helpers.sh"
+elif [[ -f "src/adapter_registry_helpers.sh" ]]; then
+	source "src/adapter_registry_helpers.sh"
+elif [[ -f "../src/adapter_registry_helpers.sh" ]]; then
+	source "../src/adapter_registry_helpers.sh"
+fi
+
 # Registry Data Structures
 declare -A ADAPTER_REGISTRY                    # Maps adapter identifier -> metadata JSON
 declare -A ADAPTER_REGISTRY_CAPABILITIES       # Maps capability -> comma-separated adapter list
@@ -43,37 +52,18 @@ ADAPTER_REGISTRY_INIT_FILE="$REGISTRY_BASE_DIR/suitey_adapter_init"
 
 # Save registry state to files (for testing persistence)
 adapter_registry_save_state() {
-	# Use existing global variables if set, otherwise re-evaluate based on TEST_ADAPTER_REGISTRY_DIR
-	local registry_base_dir
-	local registry_file
-	local capabilities_file
-	local order_file
-	local init_file
-
-	# Determine the base directory - prioritize TEST_ADAPTER_REGISTRY_DIR if set
+	# Determine base directory for registry files
 	local actual_base_dir
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
-	# TEST_ADAPTER_REGISTRY_DIR takes precedence for test consistency
-	actual_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
-	elif [[ -n "${REGISTRY_BASE_DIR:-}" ]] && [[ -d "${REGISTRY_BASE_DIR:-}" ]]; then
-	# Use existing REGISTRY_BASE_DIR if it's a valid directory
-	actual_base_dir="$REGISTRY_BASE_DIR"
-	else
-	# Fall back to TMPDIR
-	actual_base_dir="${TMPDIR:-/tmp}"
-	fi
+	actual_base_dir=$(_adapter_registry_determine_base_dir) || return 1
 
-	# Ensure directory exists - create it if it doesn't exist
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-		echo "ERROR: Failed to create registry directory: $actual_base_dir" >&2  # documented: Directory creation failed
-		return 1
-	fi
+	# Ensure directory exists and is writable
+	_adapter_registry_ensure_directory "$actual_base_dir" || return 1
 
 	# Set file paths based on the actual base directory
-	registry_file="$actual_base_dir/suitey_adapter_registry"
-	capabilities_file="$actual_base_dir/suitey_adapter_capabilities"
-	order_file="$actual_base_dir/suitey_adapter_order"
-	init_file="$actual_base_dir/suitey_adapter_init"
+	local registry_file="$actual_base_dir/suitey_adapter_registry"
+	local capabilities_file="$actual_base_dir/suitey_adapter_capabilities"
+	local order_file="$actual_base_dir/suitey_adapter_order"
+	local init_file="$actual_base_dir/suitey_adapter_init"
 
 	# Always update global variables to match the actual paths we're using
 	# This ensures load_state() uses the same directory as save_state()
@@ -83,288 +73,101 @@ adapter_registry_save_state() {
 	ADAPTER_REGISTRY_ORDER_FILE="$order_file"
 	ADAPTER_REGISTRY_INIT_FILE="$init_file"
 
-	# Save ADAPTER_REGISTRY - verify directory exists and is writable
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
+	# Save arrays to files
+	_adapter_registry_save_array_to_file "ADAPTER_REGISTRY" "$registry_file" || return 1
+	_adapter_registry_save_array_to_file "ADAPTER_REGISTRY_CAPABILITIES" "$capabilities_file" || return 1
+	_adapter_registry_save_order "$order_file" || return 1
+	_adapter_registry_save_initialized "$init_file" || return 1
+}
 
-	# Create/truncate file with error checking using touch + verify
-	if ! touch "$registry_file" 2>&1 || [[ ! -f "$registry_file" ]]; then
-	echo "ERROR: Failed to create registry file: $registry_file" >&2  # documented: File creation failed
-	return 1
-	fi
-	# Truncate it
-	> "$registry_file"
+# Helper: Parse file paths from helper output
+_adapter_registry_parse_file_paths() {
+	local file_paths="$1"
+	echo "$file_paths" | sed -n '1p'
+	echo "$file_paths" | sed -n '2p'
+	echo "$file_paths" | sed -n '3p'
+	echo "$file_paths" | sed -n '4p'
+}
 
-	for key in "${!ADAPTER_REGISTRY[@]}"; do
-	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
-	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with base64 + tr
-	fi
-
-	# Validate we got a non-empty encoded value
-	if [[ -z "$encoded_value" ]]; then
-	echo "ERROR: Failed to encode value for key '$key'" >&2  # documented: Base64 encoding failed
-	return 1
-	fi
-
-	echo "$key=$encoded_value" >> "$registry_file"
-	done
-
-	# Save ADAPTER_REGISTRY_CAPABILITIES - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	# Create/truncate file with error checking using touch + verify
-	if ! touch "$capabilities_file" 2>&1 || [[ ! -f "$capabilities_file" ]]; then
-	# documented: Capabilities file creation failed
-	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2
-	return 1
-	fi
-	# Truncate it
-	> "$capabilities_file"
-
-	for key in "${!ADAPTER_REGISTRY_CAPABILITIES[@]}"; do
-	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
-	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with base64 + tr
-	fi
-
-	# Validate we got a non-empty encoded value
-	if [[ -z "$encoded_value" ]]; then
-	echo "ERROR: Failed to encode value for key '$key'" >&2
-	return 1
-	fi
-
-	echo "$key=$encoded_value" >> "$capabilities_file"
-	done
-
-	# Save ADAPTER_REGISTRY_ORDER - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$order_file" 2>&1; then
-	echo "ERROR: Failed to write order file: $order_file" >&2  # documented: Order file write failed
-	return 1
-	fi
-
-	# Save ADAPTER_REGISTRY_INITIALIZED - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$init_file" 2>&1; then
-	echo "ERROR: Failed to write init file: $init_file" >&2
-	return 1
+# Helper: Load order array from file with filtering
+_adapter_registry_load_order_array() {
+	local order_file="$1"
+	if [[ -f "$order_file" ]]; then
+		mapfile -t ADAPTER_REGISTRY_ORDER < "$order_file"
+		# Filter out empty lines
+		ADAPTER_REGISTRY_ORDER=("${ADAPTER_REGISTRY_ORDER[@]// /}")  # Remove spaces
+		ADAPTER_REGISTRY_ORDER=($(printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" | grep -v '^$'))
 	fi
 }
 
-# Load registry state from files (for testing persistence)
-adapter_registry_load_state() {
-	# If TEST_ADAPTER_REGISTRY_DIR is set, always use it (for test consistency)
-	local registry_base_dir
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
-	registry_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
-	else
-	# Re-evaluate REGISTRY_BASE_DIR to use current TEST_ADAPTER_REGISTRY_DIR value
-	registry_base_dir="${TMPDIR:-/tmp}"
-	fi
+# Helper: Perform reload operations
+_adapter_registry_perform_reload() {
+	local actual_registry_file="$1"
+	local actual_capabilities_file="$2"
+	local actual_order_file="$3"
+	local switching_locations="$4"
 
-	local registry_file="$registry_base_dir/suitey_adapter_registry"
-	local capabilities_file="$registry_base_dir/suitey_adapter_capabilities"
-	local order_file="$registry_base_dir/suitey_adapter_order"
-	local init_file="$registry_base_dir/suitey_adapter_init"
-
-	# Ensure directory exists before trying to read files
-	mkdir -p "$registry_base_dir"
-
-	# Check if we're switching locations BEFORE updating globals
-	# This determines if we need to reload state from a different file location
-	local switching_locations=false
-	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
-	switching_locations=true
-	fi
-
-	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
-	# or if registry file exists in the new location, or if globals haven't been set yet
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
-		[[ -f "$registry_file" ]] || \
-		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
-	REGISTRY_BASE_DIR="$registry_base_dir"
-	ADAPTER_REGISTRY_FILE="$registry_file"
-	ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
-	ADAPTER_REGISTRY_ORDER_FILE="$order_file"
-	ADAPTER_REGISTRY_INIT_FILE="$init_file"
-	fi
-
-	# Use the global variables (which now point to the correct location)
-	local actual_registry_file="${ADAPTER_REGISTRY_FILE:-$registry_file}"
-	local actual_capabilities_file="${ADAPTER_REGISTRY_CAPABILITIES_FILE:-$capabilities_file}"
-	local actual_order_file="${ADAPTER_REGISTRY_ORDER_FILE:-$order_file}"
-	local actual_init_file="${ADAPTER_REGISTRY_INIT_FILE:-$init_file}"
-
-	# Reload if the registry file exists (to load latest state from disk),
-	# or if we're switching to a different file location
-	local should_reload=false
-	if [[ -f "$actual_registry_file" ]]; then
-	# File exists - reload to get latest state
-	should_reload=true
-	elif [[ "$switching_locations" == "true" ]]; then
-	# Switching locations - clear to start fresh
-	should_reload=true
-	fi
-
-	if [[ "$should_reload" == "true" ]]; then
 	# Clear arrays before loading to ensure clean state from file
 	ADAPTER_REGISTRY=()
 	# Only clear capabilities if we're going to load from file
 	# This prevents losing in-memory state when file doesn't exist
 	if [[ -f "$actual_capabilities_file" ]] || [[ "$switching_locations" == "true" ]]; then
-	ADAPTER_REGISTRY_CAPABILITIES=()
+		ADAPTER_REGISTRY_CAPABILITIES=()
 	fi
 	ADAPTER_REGISTRY_ORDER=()
 
-	# Load ADAPTER_REGISTRY
-	if [[ -f "$actual_registry_file" ]]; then
-	while IFS= read -r line || [[ -n "$line" ]]; do
-	# Skip empty lines
-	[[ -z "$line" ]] && continue
+	# Load arrays from files
+	_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file" >/dev/null
 
-	# Split on first '=' only (since base64 can contain '=')
-	key="${line%%=*}"
-	encoded_value="${line#*=}"
-
-	# Skip malformed entries
-	if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-	decoded_value=""
-	# Try different base64 decoding variants
-	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 -d
-	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 --decode
-	fi
-
-	if [[ -n "$decoded_value" ]]; then
-	ADAPTER_REGISTRY["$key"]="$decoded_value"
-	else
-	# documented: Base64 decode failed, skipping corrupted registry entry
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
-	fi
-	fi
-	done < "$actual_registry_file"
-	fi
-
-	# Load ADAPTER_REGISTRY_CAPABILITIES
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
-	while IFS= read -r line || [[ -n "$line" ]]; do
-	# Skip empty lines
-	[[ -z "$line" ]] && continue
-
-	# Split on first '=' only (since base64 can contain '=')
-	key="${line%%=*}"
-	encoded_value="${line#*=}"
-
-	# Skip malformed entries
-	if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-	decoded_value=""
-	# Try different base64 decoding variants
-	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 -d
-	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 --decode
+		local loaded_count
+		loaded_count=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
 
-	if [[ -n "$decoded_value" ]]; then
-	ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
-	capabilities_loaded=true
-	else
-	# documented: Base64 decode failed, skipping corrupted registry entry
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
-	fi
-	fi
-	done < "$actual_capabilities_file"
+	_adapter_registry_load_order_array "$actual_order_file"
+	_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching_locations" "$actual_capabilities_file"
+}
+
+# Load registry state from files (for testing persistence)
+adapter_registry_load_state() {
+	# Determine file locations and update globals
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local actual_registry_file="${file_paths_array[0]}"
+	local actual_capabilities_file="${file_paths_array[1]}"
+	local actual_order_file="${file_paths_array[2]}"
+	local actual_init_file="${file_paths_array[3]}"
+
+	# Check if we're switching locations BEFORE updating globals (this was done in the helper)
+	local switching_locations=false
+	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$actual_registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		switching_locations=true
 	fi
 
-	# Load ADAPTER_REGISTRY_ORDER
-	if [[ -f "$actual_order_file" ]]; then
-	mapfile -t ADAPTER_REGISTRY_ORDER < "$actual_order_file"
-	# Filter out empty lines
-	ADAPTER_REGISTRY_ORDER=("${ADAPTER_REGISTRY_ORDER[@]// /}")  # Remove spaces
-	ADAPTER_REGISTRY_ORDER=($(printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" | grep -v '^$'))
-	fi
+	# Determine if state should be reloaded
+	local should_reload
+	should_reload=$(_adapter_registry_should_reload \
+		"$actual_registry_file" \
+		"$actual_capabilities_file" \
+		"$switching_locations")
 
-	# Rebuild capabilities index from loaded adapters only if:
-	# 1. Capabilities file doesn't exist or is empty (capabilities_loaded is false)
-	# 2. We're switching locations (need to rebuild from scratch)
-	# 3. The capabilities file exists but is empty
-	# This prevents unnecessary rebuilds on every load_state() call, but ensures
-	# consistency when files are missing or when switching locations
-	if [[ ${#ADAPTER_REGISTRY[@]} -gt 0 ]]; then
-	local should_rebuild_capabilities=false
-
-	if [[ "$capabilities_loaded" == "false" ]]; then
-	# No capabilities file or file is empty - rebuild from adapters
-	should_rebuild_capabilities=true
-	elif [[ "$switching_locations" == "true" ]]; then
-	# Switching locations - rebuild to ensure consistency
-	should_rebuild_capabilities=true
-	elif [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
-	# Capabilities file exists but is empty - rebuild
-	should_rebuild_capabilities=true
-	fi
-
-	if [[ "$should_rebuild_capabilities" == "true" ]]; then
-	# Clear and rebuild from scratch
-	ADAPTER_REGISTRY_CAPABILITIES=()
-	for adapter_id in "${ADAPTER_REGISTRY_ORDER[@]}"; do
-	if [[ -v ADAPTER_REGISTRY["$adapter_id"] ]]; then
-	adapter_registry_index_capabilities "$adapter_id" "${ADAPTER_REGISTRY["$adapter_id"]}"
-	fi
-	done
-	fi
-	fi
+	if [[ "$should_reload" == "true" ]]; then
+		_adapter_registry_perform_reload \
+			"$actual_registry_file" \
+			"$actual_capabilities_file" \
+			"$actual_order_file" \
+			"$switching_locations"
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
 	if [[ -f "$actual_init_file" ]]; then
-	ADAPTER_REGISTRY_INITIALIZED=$(<"$actual_init_file")
+		ADAPTER_REGISTRY_INITIALIZED=$(<"$actual_init_file")
 	else
-	ADAPTER_REGISTRY_INITIALIZED=false
+		ADAPTER_REGISTRY_INITIALIZED=false
 	fi
 }
 

@@ -10,20 +10,7 @@
 # Unit tests for Build Manager component
 # Tests Build Manager logic with mocked Docker operations
 
-# Source the suitey script to get Build Manager functions
 load ../helpers/build_manager
-
-# Find and source suitey.sh
-suitey_script=""
-if [[ -f "$BATS_TEST_DIRNAME/../../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../../suitey.sh"
-elif [[ -f "$BATS_TEST_DIRNAME/../../suitey.sh" ]]; then
-  suitey_script="$BATS_TEST_DIRNAME/../../suitey.sh"
-else
-  suitey_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../.." && pwd)/suitey.sh"
-fi
-
-source "$suitey_script"
 
 # ============================================================================
 # Test Helper Functions (will be replaced with shared helpers in Phase 2)

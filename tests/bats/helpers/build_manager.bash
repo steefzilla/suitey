@@ -2,6 +2,87 @@
 # Helper functions for Build Manager tests
 
 # ============================================================================
+# Source the build manager helper modules
+# ============================================================================
+
+# Find and source build_manager_docker.sh
+build_manager_docker_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_docker.sh" ]]; then
+  build_manager_docker_script="$BATS_TEST_DIRNAME/../../../src/build_manager_docker.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_docker.sh" ]]; then
+  build_manager_docker_script="$BATS_TEST_DIRNAME/../../src/build_manager_docker.sh"
+else
+  build_manager_docker_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_docker.sh"
+fi
+source "$build_manager_docker_script"
+
+# Find and source build_manager_core_helpers.sh
+build_manager_core_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_core_helpers.sh" ]]; then
+  build_manager_core_helpers_script="$BATS_TEST_DIRNAME/../../../src/build_manager_core_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_core_helpers.sh" ]]; then
+  build_manager_core_helpers_script="$BATS_TEST_DIRNAME/../../src/build_manager_core_helpers.sh"
+else
+  build_manager_core_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_core_helpers.sh"
+fi
+source "$build_manager_core_helpers_script"
+
+# Find and source build_manager_build_helpers.sh
+build_manager_build_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_build_helpers.sh" ]]; then
+  build_manager_build_helpers_script="$BATS_TEST_DIRNAME/../../../src/build_manager_build_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_build_helpers.sh" ]]; then
+  build_manager_build_helpers_script="$BATS_TEST_DIRNAME/../../src/build_manager_build_helpers.sh"
+else
+  build_manager_build_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_build_helpers.sh"
+fi
+source "$build_manager_build_helpers_script"
+
+# Find and source build_manager_container.sh
+build_manager_container_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_container.sh" ]]; then
+  build_manager_container_script="$BATS_TEST_DIRNAME/../../../src/build_manager_container.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_container.sh" ]]; then
+  build_manager_container_script="$BATS_TEST_DIRNAME/../../src/build_manager_container.sh"
+else
+  build_manager_container_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_container.sh"
+fi
+source "$build_manager_container_script"
+
+# Find and source build_manager_execution.sh
+build_manager_execution_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_execution.sh" ]]; then
+  build_manager_execution_script="$BATS_TEST_DIRNAME/../../../src/build_manager_execution.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_execution.sh" ]]; then
+  build_manager_execution_script="$BATS_TEST_DIRNAME/../../src/build_manager_execution.sh"
+else
+  build_manager_execution_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_execution.sh"
+fi
+source "$build_manager_execution_script"
+
+# Find and source build_manager_integration.sh
+build_manager_integration_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_integration.sh" ]]; then
+  build_manager_integration_script="$BATS_TEST_DIRNAME/../../../src/build_manager_integration.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_integration.sh" ]]; then
+  build_manager_integration_script="$BATS_TEST_DIRNAME/../../src/build_manager_integration.sh"
+else
+  build_manager_integration_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_integration.sh"
+fi
+source "$build_manager_integration_script"
+
+# Find and source build_manager.sh (main module)
+build_manager_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager.sh" ]]; then
+  build_manager_script="$BATS_TEST_DIRNAME/../../../src/build_manager.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager.sh" ]]; then
+  build_manager_script="$BATS_TEST_DIRNAME/../../src/build_manager.sh"
+else
+  build_manager_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager.sh"
+fi
+source "$build_manager_script"
+
+# ============================================================================
 # JSON Helper Functions (will be replaced with shared helpers in Phase 2)
 # ============================================================================
 

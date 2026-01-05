@@ -2,6 +2,22 @@
 # Helper functions for Adapter Registry tests
 
 # ============================================================================
+# Source the adapter registry helpers module
+# ============================================================================
+
+# Find and source adapter_registry_helpers.sh
+adapter_registry_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+  adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+  adapter_registry_helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+else
+  adapter_registry_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+fi
+
+source "$adapter_registry_helpers_script"
+
+# ============================================================================
 # JSON Helper Functions (will be replaced with shared helpers in Phase 2)
 # ============================================================================
 

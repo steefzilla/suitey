@@ -29,17 +29,6 @@ set -euo pipefail
 # Common Helper Functions and State
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Colors for output (if terminal supports it)
 if [[ -t 1 ]]; then
@@ -155,17 +144,6 @@ count_tests_in_file() {
 # Adapter Registry
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Source JSON helper functions
 if [[ -f "json_helpers.sh" ]]; then
@@ -174,6 +152,15 @@ elif [[ -f "src/json_helpers.sh" ]]; then
 	source "src/json_helpers.sh"
 elif [[ -f "../src/json_helpers.sh" ]]; then
 	source "../src/json_helpers.sh"
+fi
+
+# Source adapter registry helper functions
+if [[ -f "adapter_registry_helpers.sh" ]]; then
+	source "adapter_registry_helpers.sh"
+elif [[ -f "src/adapter_registry_helpers.sh" ]]; then
+	source "src/adapter_registry_helpers.sh"
+elif [[ -f "../src/adapter_registry_helpers.sh" ]]; then
+	source "../src/adapter_registry_helpers.sh"
 fi
 
 # Registry Data Structures
@@ -196,37 +183,18 @@ ADAPTER_REGISTRY_INIT_FILE="$REGISTRY_BASE_DIR/suitey_adapter_init"
 
 # Save registry state to files (for testing persistence)
 adapter_registry_save_state() {
-	# Use existing global variables if set, otherwise re-evaluate based on TEST_ADAPTER_REGISTRY_DIR
-	local registry_base_dir
-	local registry_file
-	local capabilities_file
-	local order_file
-	local init_file
-
-	# Determine the base directory - prioritize TEST_ADAPTER_REGISTRY_DIR if set
+	# Determine base directory for registry files
 	local actual_base_dir
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
-	# TEST_ADAPTER_REGISTRY_DIR takes precedence for test consistency
-	actual_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
-	elif [[ -n "${REGISTRY_BASE_DIR:-}" ]] && [[ -d "${REGISTRY_BASE_DIR:-}" ]]; then
-	# Use existing REGISTRY_BASE_DIR if it's a valid directory
-	actual_base_dir="$REGISTRY_BASE_DIR"
-	else
-	# Fall back to TMPDIR
-	actual_base_dir="${TMPDIR:-/tmp}"
-	fi
+	actual_base_dir=$(_adapter_registry_determine_base_dir) || return 1
 
-	# Ensure directory exists - create it if it doesn't exist
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-		echo "ERROR: Failed to create registry directory: $actual_base_dir" >&2  # documented: Directory creation failed
-		return 1
-	fi
+	# Ensure directory exists and is writable
+	_adapter_registry_ensure_directory "$actual_base_dir" || return 1
 
 	# Set file paths based on the actual base directory
-	registry_file="$actual_base_dir/suitey_adapter_registry"
-	capabilities_file="$actual_base_dir/suitey_adapter_capabilities"
-	order_file="$actual_base_dir/suitey_adapter_order"
-	init_file="$actual_base_dir/suitey_adapter_init"
+	local registry_file="$actual_base_dir/suitey_adapter_registry"
+	local capabilities_file="$actual_base_dir/suitey_adapter_capabilities"
+	local order_file="$actual_base_dir/suitey_adapter_order"
+	local init_file="$actual_base_dir/suitey_adapter_init"
 
 	# Always update global variables to match the actual paths we're using
 	# This ensures load_state() uses the same directory as save_state()
@@ -236,288 +204,101 @@ adapter_registry_save_state() {
 	ADAPTER_REGISTRY_ORDER_FILE="$order_file"
 	ADAPTER_REGISTRY_INIT_FILE="$init_file"
 
-	# Save ADAPTER_REGISTRY - verify directory exists and is writable
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
+	# Save arrays to files
+	_adapter_registry_save_array_to_file "ADAPTER_REGISTRY" "$registry_file" || return 1
+	_adapter_registry_save_array_to_file "ADAPTER_REGISTRY_CAPABILITIES" "$capabilities_file" || return 1
+	_adapter_registry_save_order "$order_file" || return 1
+	_adapter_registry_save_initialized "$init_file" || return 1
+}
 
-	# Create/truncate file with error checking using touch + verify
-	if ! touch "$registry_file" 2>&1 || [[ ! -f "$registry_file" ]]; then
-	echo "ERROR: Failed to create registry file: $registry_file" >&2  # documented: File creation failed
-	return 1
-	fi
-	# Truncate it
-	> "$registry_file"
+# Helper: Parse file paths from helper output
+_adapter_registry_parse_file_paths() {
+	local file_paths="$1"
+	echo "$file_paths" | sed -n '1p'
+	echo "$file_paths" | sed -n '2p'
+	echo "$file_paths" | sed -n '3p'
+	echo "$file_paths" | sed -n '4p'
+}
 
-	for key in "${!ADAPTER_REGISTRY[@]}"; do
-	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
-	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with base64 + tr
-	fi
-
-	# Validate we got a non-empty encoded value
-	if [[ -z "$encoded_value" ]]; then
-	echo "ERROR: Failed to encode value for key '$key'" >&2  # documented: Base64 encoding failed
-	return 1
-	fi
-
-	echo "$key=$encoded_value" >> "$registry_file"
-	done
-
-	# Save ADAPTER_REGISTRY_CAPABILITIES - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	# Create/truncate file with error checking using touch + verify
-	if ! touch "$capabilities_file" 2>&1 || [[ ! -f "$capabilities_file" ]]; then
-	# documented: Capabilities file creation failed
-	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2
-	return 1
-	fi
-	# Truncate it
-	> "$capabilities_file"
-
-	for key in "${!ADAPTER_REGISTRY_CAPABILITIES[@]}"; do
-	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
-	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && \
-		[[ -n "$encoded_value" ]]; then
-	: # Success with base64 + tr
-	fi
-
-	# Validate we got a non-empty encoded value
-	if [[ -z "$encoded_value" ]]; then
-	echo "ERROR: Failed to encode value for key '$key'" >&2
-	return 1
-	fi
-
-	echo "$key=$encoded_value" >> "$capabilities_file"
-	done
-
-	# Save ADAPTER_REGISTRY_ORDER - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$order_file" 2>&1; then
-	echo "ERROR: Failed to write order file: $order_file" >&2  # documented: Order file write failed
-	return 1
-	fi
-
-	# Save ADAPTER_REGISTRY_INITIALIZED - directory already exists, just verify
-	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
-	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	# documented: Registry directory not accessible
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
-	return 1
-	fi
-	fi
-
-	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$init_file" 2>&1; then
-	echo "ERROR: Failed to write init file: $init_file" >&2
-	return 1
+# Helper: Load order array from file with filtering
+_adapter_registry_load_order_array() {
+	local order_file="$1"
+	if [[ -f "$order_file" ]]; then
+		mapfile -t ADAPTER_REGISTRY_ORDER < "$order_file"
+		# Filter out empty lines
+		ADAPTER_REGISTRY_ORDER=("${ADAPTER_REGISTRY_ORDER[@]// /}")  # Remove spaces
+		ADAPTER_REGISTRY_ORDER=($(printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" | grep -v '^$'))
 	fi
 }
 
-# Load registry state from files (for testing persistence)
-adapter_registry_load_state() {
-	# If TEST_ADAPTER_REGISTRY_DIR is set, always use it (for test consistency)
-	local registry_base_dir
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
-	registry_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
-	else
-	# Re-evaluate REGISTRY_BASE_DIR to use current TEST_ADAPTER_REGISTRY_DIR value
-	registry_base_dir="${TMPDIR:-/tmp}"
-	fi
+# Helper: Perform reload operations
+_adapter_registry_perform_reload() {
+	local actual_registry_file="$1"
+	local actual_capabilities_file="$2"
+	local actual_order_file="$3"
+	local switching_locations="$4"
 
-	local registry_file="$registry_base_dir/suitey_adapter_registry"
-	local capabilities_file="$registry_base_dir/suitey_adapter_capabilities"
-	local order_file="$registry_base_dir/suitey_adapter_order"
-	local init_file="$registry_base_dir/suitey_adapter_init"
-
-	# Ensure directory exists before trying to read files
-	mkdir -p "$registry_base_dir"
-
-	# Check if we're switching locations BEFORE updating globals
-	# This determines if we need to reload state from a different file location
-	local switching_locations=false
-	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
-	switching_locations=true
-	fi
-
-	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
-	# or if registry file exists in the new location, or if globals haven't been set yet
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
-		[[ -f "$registry_file" ]] || \
-		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
-	REGISTRY_BASE_DIR="$registry_base_dir"
-	ADAPTER_REGISTRY_FILE="$registry_file"
-	ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
-	ADAPTER_REGISTRY_ORDER_FILE="$order_file"
-	ADAPTER_REGISTRY_INIT_FILE="$init_file"
-	fi
-
-	# Use the global variables (which now point to the correct location)
-	local actual_registry_file="${ADAPTER_REGISTRY_FILE:-$registry_file}"
-	local actual_capabilities_file="${ADAPTER_REGISTRY_CAPABILITIES_FILE:-$capabilities_file}"
-	local actual_order_file="${ADAPTER_REGISTRY_ORDER_FILE:-$order_file}"
-	local actual_init_file="${ADAPTER_REGISTRY_INIT_FILE:-$init_file}"
-
-	# Reload if the registry file exists (to load latest state from disk),
-	# or if we're switching to a different file location
-	local should_reload=false
-	if [[ -f "$actual_registry_file" ]]; then
-	# File exists - reload to get latest state
-	should_reload=true
-	elif [[ "$switching_locations" == "true" ]]; then
-	# Switching locations - clear to start fresh
-	should_reload=true
-	fi
-
-	if [[ "$should_reload" == "true" ]]; then
 	# Clear arrays before loading to ensure clean state from file
 	ADAPTER_REGISTRY=()
 	# Only clear capabilities if we're going to load from file
 	# This prevents losing in-memory state when file doesn't exist
 	if [[ -f "$actual_capabilities_file" ]] || [[ "$switching_locations" == "true" ]]; then
-	ADAPTER_REGISTRY_CAPABILITIES=()
+		ADAPTER_REGISTRY_CAPABILITIES=()
 	fi
 	ADAPTER_REGISTRY_ORDER=()
 
-	# Load ADAPTER_REGISTRY
-	if [[ -f "$actual_registry_file" ]]; then
-	while IFS= read -r line || [[ -n "$line" ]]; do
-	# Skip empty lines
-	[[ -z "$line" ]] && continue
+	# Load arrays from files
+	_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file" >/dev/null
 
-	# Split on first '=' only (since base64 can contain '=')
-	key="${line%%=*}"
-	encoded_value="${line#*=}"
-
-	# Skip malformed entries
-	if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-	decoded_value=""
-	# Try different base64 decoding variants
-	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 -d
-	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 --decode
-	fi
-
-	if [[ -n "$decoded_value" ]]; then
-	ADAPTER_REGISTRY["$key"]="$decoded_value"
-	else
-	# documented: Base64 decode failed, skipping corrupted registry entry
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
-	fi
-	fi
-	done < "$actual_registry_file"
-	fi
-
-	# Load ADAPTER_REGISTRY_CAPABILITIES
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
-	while IFS= read -r line || [[ -n "$line" ]]; do
-	# Skip empty lines
-	[[ -z "$line" ]] && continue
-
-	# Split on first '=' only (since base64 can contain '=')
-	key="${line%%=*}"
-	encoded_value="${line#*=}"
-
-	# Skip malformed entries
-	if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
-	decoded_value=""
-	# Try different base64 decoding variants
-	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 -d
-	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null) && [[ -n "$decoded_value" ]]; then
-	: # Success with base64 --decode
+		local loaded_count
+		loaded_count=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
 
-	if [[ -n "$decoded_value" ]]; then
-	ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
-	capabilities_loaded=true
-	else
-	# documented: Base64 decode failed, skipping corrupted registry entry
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
-	fi
-	fi
-	done < "$actual_capabilities_file"
+	_adapter_registry_load_order_array "$actual_order_file"
+	_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching_locations" "$actual_capabilities_file"
+}
+
+# Load registry state from files (for testing persistence)
+adapter_registry_load_state() {
+	# Determine file locations and update globals
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local actual_registry_file="${file_paths_array[0]}"
+	local actual_capabilities_file="${file_paths_array[1]}"
+	local actual_order_file="${file_paths_array[2]}"
+	local actual_init_file="${file_paths_array[3]}"
+
+	# Check if we're switching locations BEFORE updating globals (this was done in the helper)
+	local switching_locations=false
+	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$actual_registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		switching_locations=true
 	fi
 
-	# Load ADAPTER_REGISTRY_ORDER
-	if [[ -f "$actual_order_file" ]]; then
-	mapfile -t ADAPTER_REGISTRY_ORDER < "$actual_order_file"
-	# Filter out empty lines
-	ADAPTER_REGISTRY_ORDER=("${ADAPTER_REGISTRY_ORDER[@]// /}")  # Remove spaces
-	ADAPTER_REGISTRY_ORDER=($(printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" | grep -v '^$'))
-	fi
+	# Determine if state should be reloaded
+	local should_reload
+	should_reload=$(_adapter_registry_should_reload \
+		"$actual_registry_file" \
+		"$actual_capabilities_file" \
+		"$switching_locations")
 
-	# Rebuild capabilities index from loaded adapters only if:
-	# 1. Capabilities file doesn't exist or is empty (capabilities_loaded is false)
-	# 2. We're switching locations (need to rebuild from scratch)
-	# 3. The capabilities file exists but is empty
-	# This prevents unnecessary rebuilds on every load_state() call, but ensures
-	# consistency when files are missing or when switching locations
-	if [[ ${#ADAPTER_REGISTRY[@]} -gt 0 ]]; then
-	local should_rebuild_capabilities=false
-
-	if [[ "$capabilities_loaded" == "false" ]]; then
-	# No capabilities file or file is empty - rebuild from adapters
-	should_rebuild_capabilities=true
-	elif [[ "$switching_locations" == "true" ]]; then
-	# Switching locations - rebuild to ensure consistency
-	should_rebuild_capabilities=true
-	elif [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
-	# Capabilities file exists but is empty - rebuild
-	should_rebuild_capabilities=true
-	fi
-
-	if [[ "$should_rebuild_capabilities" == "true" ]]; then
-	# Clear and rebuild from scratch
-	ADAPTER_REGISTRY_CAPABILITIES=()
-	for adapter_id in "${ADAPTER_REGISTRY_ORDER[@]}"; do
-	if [[ -v ADAPTER_REGISTRY["$adapter_id"] ]]; then
-	adapter_registry_index_capabilities "$adapter_id" "${ADAPTER_REGISTRY["$adapter_id"]}"
-	fi
-	done
-	fi
-	fi
+	if [[ "$should_reload" == "true" ]]; then
+		_adapter_registry_perform_reload \
+			"$actual_registry_file" \
+			"$actual_capabilities_file" \
+			"$actual_order_file" \
+			"$switching_locations"
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
 	if [[ -f "$actual_init_file" ]]; then
-	ADAPTER_REGISTRY_INITIALIZED=$(<"$actual_init_file")
+		ADAPTER_REGISTRY_INITIALIZED=$(<"$actual_init_file")
 	else
-	ADAPTER_REGISTRY_INITIALIZED=false
+		ADAPTER_REGISTRY_INITIALIZED=false
 	fi
 }
 
@@ -851,17 +632,6 @@ adapter_registry_cleanup() {
 # Framework Detector
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Source JSON helper functions
 if [[ -f "json_helpers.sh" ]]; then
@@ -930,6 +700,291 @@ json_object() {
 # Test Suite Discovery JSON Parsing
 # ============================================================================
 
+# Helper: Extract suite name from JSON
+_parse_extract_suite_name() {
+	local suite_json="$1"
+	local framework="$2"
+
+	# Try framework-specific name fields first, then fall back to generic
+	local suite_name=""
+	case "$framework" in
+	"bats")
+	suite_name=$(json_get "$suite_json" '.name // .file // empty')
+	;;
+	"rust")
+	suite_name=$(json_get "$suite_json" '.name // .module // empty')
+	;;
+	*)
+	suite_name=$(json_get "$suite_json" '.name // empty')
+	;;
+	esac
+
+	# If no name found, generate one from path
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+	local file_path
+	file_path=$(json_get "$suite_json" '.file // .path // empty')
+	if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+	suite_name=$(basename "$file_path" | sed 's/\.[^.]*$//')
+	fi
+	fi
+
+	echo "$suite_name"
+}
+
+# Helper: Extract test files from JSON
+_parse_extract_test_files() {
+	local suite_json="$1"
+	local framework="$2"
+
+	local test_files=""
+	case "$framework" in
+	"bats")
+	test_files=$(json_get "$suite_json" '.file // empty')
+	;;
+	"rust")
+	test_files=$(json_get "$suite_json" '.file // .path // empty')
+	;;
+	*)
+	test_files=$(json_get "$suite_json" '.file // .path // empty')
+	;;
+	esac
+
+	echo "$test_files"
+}
+
+# Helper: Count tests in test files
+_parse_count_tests() {
+	local test_files="$1"
+	local framework="$2"
+	local project_root="$3"
+
+	local total_tests=0
+
+	# Split test_files if it's a JSON array
+	if [[ "$test_files" == "["* ]]; then
+	local file_count
+	file_count=$(json_array_length "$test_files")
+	for ((i=0; i<file_count; i++)); do
+	local file_path
+	file_path=$(json_get "$test_files" ".[$i]")
+	if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+	local test_count
+	test_count=$(_parse_count_tests_in_file "$file_path" "$framework" "$project_root")
+	((total_tests += test_count))
+	fi
+	done
+	else
+	# Single file
+	local test_count
+	test_count=$(_parse_count_tests_in_file "$test_files" "$framework" "$project_root")
+	total_tests=$test_count
+	fi
+
+	echo "$total_tests"
+}
+
+# Helper: Count tests in a single file
+_parse_count_tests_in_file() {
+	local file_path="$1"
+	local framework="$2"
+	local project_root="$3"
+
+	if [[ ! -f "$file_path" ]]; then
+	echo "0"
+	return
+	fi
+
+	case "$framework" in
+	"bats")
+	# Count @test lines
+	grep -c '^@test' "$file_path" 2>/dev/null || echo "0"
+	;;
+	"rust")
+	# Count #[test] attributes
+	grep -c '#\[test\]' "$file_path" 2>/dev/null || echo "0"
+	;;
+	*)
+	# Default: count lines that look like test functions
+	grep -c '^test\|^fn test' "$file_path" 2>/dev/null || echo "0"
+	;;
+	esac
+}
+
+# Helper: Register test adapters
+_detect_register_test_adapters() {
+	# Register adapters for test frameworks
+	adapter_registry_register "bats"
+	adapter_registry_register "rust"
+}
+
+# Helper: Process adapter detection
+_detect_process_adapter() {
+	local adapter="$1"
+
+	# Check if adapter detection function exists
+	if command -v "${adapter}_adapter_detect" >/dev/null 2>&1; then
+	# Call detection function
+	local detection_result
+	if detection_result=$("${adapter}_adapter_detect" "$PROJECT_ROOT" 2>/dev/null); then
+	# Parse detection result (should be JSON)
+	local detected
+	detected=$(json_get "$detection_result" '.detected // false')
+	if [[ "$detected" == "true" ]]; then
+	local framework_info
+	framework_info=$(json_get "$detection_result" '.framework_info // {}')
+	DETECTED_FRAMEWORKS+=("$adapter")
+	echo "detected $adapter" >&2
+	return 0
+	fi
+	fi
+	fi
+	return 1
+}
+
+# Helper: Process framework metadata
+_detect_process_framework_metadata() {
+	local adapter="$1"
+	local project_root="$2"
+	local adapter_metadata_func="${adapter}_adapter_get_metadata"
+	local adapter_binary_func="${adapter}_adapter_check_binaries"
+
+	local metadata_json
+	metadata_json=$("$adapter_metadata_func" "$project_root")
+	echo "metadata $adapter" >&2
+
+	echo "binary check $adapter" >&2
+	echo "check_binaries $adapter" >&2
+	local binary_available=false
+	if "$adapter_binary_func"; then
+		binary_available=true
+	fi
+
+	echo "$metadata_json"
+	echo "$binary_available"
+}
+
+# Helper: Store detection results
+_detect_store_results() {
+	local detected_frameworks=("$@")
+
+	# Convert to JSON array
+	local json_array="[]"
+	for framework in "${detected_frameworks[@]}"; do
+	json_array=$(json_merge "$json_array" "[\"$framework\"]")
+	done
+
+	DETECTED_FRAMEWORKS_JSON="$json_array"
+}
+
+# Helper: Split JSON array into individual objects
+_parse_split_json_array() {
+	local json_array="$1"
+
+	# Remove outer brackets and split by "},{" to get individual objects
+	# Remove leading "[" and trailing "]"
+	local json_content="${json_array#[}"
+	json_content="${json_content%]}"
+
+	# If no content left, return empty
+	if [[ -z "$json_content" ]]; then
+		return 0
+	fi
+
+	# Split by "},{" to get individual suite objects
+	if [[ "$json_content" == *"},{"* ]]; then
+		# Multiple objects - use sed to split properly
+		while IFS= read -r line; do
+			echo "$line"
+		done < <(echo "$json_content" | sed 's/},{/}\n{/g')
+	else
+		# Single object
+		echo "$json_content"
+	fi
+}
+
+# Helper: Extract suite data from JSON object
+_parse_extract_suite_data() {
+	local suite_obj="$1"
+	local framework="$2"
+
+	suite_obj="${suite_obj#\{}"
+	suite_obj="${suite_obj%\}}"
+	[[ -z "$suite_obj" ]] && return 1
+
+	local suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
+	[[ -z "$suite_name" ]] && echo "WARNING: Could not parse suite name from $framework JSON object" >&2 && return 1
+
+	local test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
+	[[ -z "$test_files_part" ]] && \
+		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
+
+	test_files_part="${test_files_part#[}"
+	test_files_part="${test_files_part%]}"
+
+	local test_files=()
+	if [[ -n "$test_files_part" ]]; then
+		IFS=',' read -ra test_files <<< "$test_files_part"
+		for i in "${!test_files[@]}"; do
+			test_files[i]="${test_files[i]#\"}"
+			test_files[i]="${test_files[i]%\"}"
+			test_files[i]="${test_files[i]//[[:space:]]/}"
+		done
+	fi
+
+	[[ ${#test_files[@]} -eq 0 ]] && echo "WARNING: No test files found in $framework suite '$suite_name'" >&2 && return 1
+
+	echo "$suite_name"
+	printf '%s\n' "${test_files[@]}"
+}
+
+# Helper: Count tests in suite
+_parse_count_tests_in_suite() {
+	local framework="$1"
+	local project_root="$2"
+	shift 2
+	local test_files=("$@")
+
+	local total_test_count=0
+	for test_file in "${test_files[@]}"; do
+		if [[ -n "$test_file" ]]; then
+			local abs_path="$project_root/$test_file"
+			local file_test_count=0
+
+			# Call framework-specific counting function
+			case "$framework" in
+			"bats")
+			file_test_count=$(count_bats_tests "$abs_path")
+			;;
+			"rust")
+			file_test_count=$(count_rust_tests "$abs_path")
+			;;
+			*)
+			# Default: assume no tests
+			file_test_count=0
+			;;
+			esac
+
+			total_test_count=$((total_test_count + file_test_count))
+		fi
+	done
+
+	echo "$total_test_count"
+}
+
+# Helper: Format suite output
+_parse_format_suite_output() {
+	local framework="$1"
+	local suite_name="$2"
+	local project_root="$3"
+	local first_test_file="$4"
+	local total_test_count="$5"
+
+	local abs_file_path="$project_root/$first_test_file"
+
+	# Output in DISCOVERED_SUITES format: framework|suite_name|file_path|rel_path|test_count
+	echo "$framework|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
+}
+
 # Parse JSON array of test suites and convert to DISCOVERED_SUITES format
 # Arguments:
 #   json_array: JSON array string containing test suite objects
@@ -943,122 +998,36 @@ parse_test_suites_json() {
 	local framework="$2"
 	local project_root="$3"
 
-	# Handle empty or null JSON
 	if [[ -z "$json_array" || "$json_array" == "[]" ]]; then
-	return 0
+		return 0
 	fi
 
-	# Basic JSON validation - must start with [ and end with ]
 	if [[ "$json_array" != \[*\] ]]; then
-	# documented: Framework detection result is malformed JSON
-	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
-	return 1
+		echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
+		return 1
 	fi
 
-	# Remove outer brackets and split by "},{" to get individual objects
-	# Remove leading "[" and trailing "]"
-	local json_content="${json_array#[}"
-	json_content="${json_content%]}"
-
-	# If no content left, return empty
-	if [[ -z "$json_content" ]]; then
-	return 0
-	fi
-
-	# Split by "},{" to get individual suite objects
 	local suite_objects
-	if [[ "$json_content" == *"},{"* ]]; then
-	# Multiple objects - use sed to split properly
-	suite_objects=()
-	while IFS= read -r line; do
-	suite_objects+=("$line")
-	done < <(echo "$json_content" | sed 's/},{/}\n{/g')
-	else
-	# Single object
-	suite_objects=("$json_content")
-	fi
+	suite_objects=$(_parse_split_json_array "$json_array")
 
-	# Process each suite object
-	for suite_obj in "${suite_objects[@]}"; do
-	# Clean up the object (remove leading/trailing braces if present)
-	suite_obj="${suite_obj#\{}"
-	suite_obj="${suite_obj%\}}"
+	while IFS= read -r suite_obj; do
+		if [[ -z "$suite_obj" ]]; then
+			continue
+		fi
+		local suite_data
+		suite_data=$(_parse_extract_suite_data "$suite_obj" "$framework")
+		if [[ $? -ne 0 ]]; then
+			continue
+		fi
 
-	# Skip empty objects
-	if [[ -z "$suite_obj" ]]; then
-	continue
-	fi
+		local suite_name=$(echo "$suite_data" | head -1)
+		local test_files=()
+		mapfile -t test_files < <(echo "$suite_data" | tail -n +2)
 
-	# Extract suite name using grep/sed (more reliable than regex)
-	local suite_name=""
-	suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
-	if [[ -z "$suite_name" ]]; then
-	echo "WARNING: Could not parse suite name from $framework JSON object" >&2
-	continue
-	fi
-
-	# Extract test_files array using grep/sed
-	local test_files_part=""
-	test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
-	if [[ -z "$test_files_part" ]]; then
-	echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2
-	continue
-	fi
-
-	# Parse test files from the array - remove brackets and split by comma
-	test_files_part="${test_files_part#[}"
-	test_files_part="${test_files_part%]}"
-
-	local test_files=()
-	if [[ -n "$test_files_part" ]]; then
-	# Split by comma and clean up quotes
-	IFS=',' read -ra test_files <<< "$test_files_part"
-	for i in "${!test_files[@]}"; do
-	test_files[i]="${test_files[i]#\"}"
-	test_files[i]="${test_files[i]%\"}"
-	test_files[i]="${test_files[i]//[[:space:]]/}"  # Remove spaces
-	done
-	fi
-
-	# Skip if no test files
-	if [[ ${#test_files[@]} -eq 0 ]]; then
-	echo "WARNING: No test files found in $framework suite '$suite_name'" >&2
-	continue
-	fi
-
-	# Calculate total test count across all files
-	local total_test_count=0
-	for test_file in "${test_files[@]}"; do
-	if [[ -n "$test_file" ]]; then
-	local abs_path="$project_root/$test_file"
-	local file_test_count=0
-
-	# Call framework-specific counting function
-	case "$framework" in
-	"bats")
-	file_test_count=$(count_bats_tests "$abs_path")
-	;;
-	"rust")
-	file_test_count=$(count_rust_tests "$abs_path")
-	;;
-	*)
-	# Default: assume no tests
-	file_test_count=0
-	;;
-	esac
-
-	total_test_count=$((total_test_count + file_test_count))
-	fi
-	done
-
-	# Use the first test file for the file_path and rel_path in the output
-	# (following the pattern of existing adapters)
-	local first_test_file="${test_files[0]}"
-	local abs_file_path="$project_root/$first_test_file"
-
-	# Output in DISCOVERED_SUITES format: framework|suite_name|file_path|rel_path|test_count
-	echo "$framework|$suite_name|$abs_file_path|$first_test_file|$total_test_count"
-	done
+		local total_test_count
+		total_test_count=$(_parse_count_tests_in_suite "$framework" "$project_root" "${test_files[@]}")
+		_parse_format_suite_output "$framework" "$suite_name" "$project_root" "${test_files[0]}" "$total_test_count"
+	done <<< "$suite_objects"
 }
 
 # ============================================================================
@@ -1068,111 +1037,52 @@ parse_test_suites_json() {
 # Core framework detection function
 detect_frameworks() {
 	local project_root="$1"
-
-	# Initialize result arrays (use arrays internally, convert to JSON at output)
 	local -a detected_frameworks_array=()
 	local -A framework_details_map=()
 	local -A binary_status_map=()
 	local -a warnings_array=()
 	local -a errors_array=()
 
-	# Get adapters from registry
 	echo "using adapter registry" >&2
+	_detect_register_test_adapters
 
-	# Register any test adapters that are available (for testing)
-	local potential_adapters=(
-		"comprehensive_adapter" "mock_detector_adapter" "failing_adapter"
-		"binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter"
-		"iter_adapter1" "iter_adapter2" "iter_adapter3"
-		"skip_adapter1" "skip_adapter2" "skip_adapter3"
-		"metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter"
-		"workflow_adapter1" "workflow_adapter2"
-		"results_adapter1" "results_adapter2"
-		"validation_adapter1" "validation_adapter2"
-		"image_test_adapter" "no_build_adapter"
-	)
-	for adapter_name in "${potential_adapters[@]}"; do
-	# Try to source the adapter if it exists
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && \
-		[[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
-	source "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" >/dev/null 2>&1 || true
-	fi
-	# Try to register regardless
-	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
-	done
-
-	local adapters_json
-	adapters_json=$(adapter_registry_get_all)
-
-	# Parse JSON array: ["bats","rust"] -> bats rust
+	local adapters_json=$(adapter_registry_get_all)
 	local adapters=()
 	if [[ "$adapters_json" != "[]" ]]; then
-	# Remove brackets and quotes, split by comma
-	adapters_json=$(echo "$adapters_json" | sed 's/^\[//' | sed 's/\]$//' | sed 's/"//g')
-	IFS=',' read -ra adapters <<< "$adapters_json"
-	fi
-	# If registry is empty, adapters array remains empty - no frameworks detected
-
-	# Check if no adapters are available
-	if [[ ${#adapters[@]} -eq 0 ]]; then
-	echo "no adapters" >&2
+		adapters_json=$(echo "$adapters_json" | sed 's/^\[//' | sed 's/\]$//' | sed 's/"//g')
+		IFS=',' read -ra adapters <<< "$adapters_json"
 	fi
 
-	# Iterate through registered adapters from registry
+	[[ ${#adapters[@]} -eq 0 ]] && echo "no adapters" >&2
+
 	for adapter in "${adapters[@]}"; do
-	local adapter_detect_func="${adapter}_adapter_detect"
-	local adapter_metadata_func="${adapter}_adapter_get_metadata"
-	local adapter_binary_func="${adapter}_adapter_check_binaries"
+		local adapter_detect_func="${adapter}_adapter_detect"
+		! command -v "$adapter_detect_func" >/dev/null 2>&1 && continue
 
-	# Check if adapter detection function exists
-	if ! command -v "$adapter_detect_func" >/dev/null 2>&1; then
-	continue
-	fi
+		echo "detected $adapter" >&2
+		echo "registry detect $adapter" >&2
+		if "$adapter_detect_func" "$project_root"; then
+			detected_frameworks_array+=("$adapter")
+			echo "processed $adapter" >&2
 
-	# Run detection
-	echo "detected $adapter" >&2
-	echo "registry detect $adapter" >&2
-	if "$adapter_detect_func" "$project_root"; then
-	# Framework detected, add to list
-	detected_frameworks_array+=("$adapter")
-	echo "processed $adapter" >&2
+			local metadata_result=$(_detect_process_framework_metadata "$adapter" "$project_root")
+			local metadata_json=$(echo "$metadata_result" | head -1)
+			local binary_available=$(echo "$metadata_result" | tail -1)
 
-	# Get framework metadata
-	local metadata_json
-	metadata_json=$("$adapter_metadata_func" "$project_root")
-	echo "metadata $adapter" >&2
+			framework_details_map["$adapter"]="$metadata_json"
+			binary_status_map["$adapter"]="$binary_available"
 
-	# Check binary availability
-	echo "binary check $adapter" >&2
-	echo "check_binaries $adapter" >&2
-	local binary_available=false
-	if "$adapter_binary_func"; then
-	binary_available=true
-	fi
-
-	# Store in arrays (convert to JSON only at output)
-	framework_details_map["$adapter"]="$metadata_json"
-	binary_status_map["$adapter"]="$binary_available"
-
-	# Generate warning if binary is not available
-	if [[ "$binary_available" == "false" ]]; then
-	local warning_msg="$adapter binary is not available"
-	warnings_array+=("$warning_msg")
-	fi
-	else
-	# Adapter detection failed - log for test verification
-	echo "skipped $adapter" >&2
-	fi
+			[[ "$binary_available" == "false" ]] && warnings_array+=("$adapter binary is not available")
+		else
+			echo "skipped $adapter" >&2
+		fi
 	done
 
-	# Store results in global variables (convert arrays to JSON)
 	DETECTED_FRAMEWORKS_JSON=$(array_to_json detected_frameworks_array)
 	FRAMEWORK_DETAILS_JSON=$(assoc_array_to_json framework_details_map)
 	BINARY_STATUS_JSON=$(assoc_array_to_json binary_status_map)
 	FRAMEWORK_WARNINGS_JSON=$(array_to_json warnings_array)
 	FRAMEWORK_ERRORS_JSON=$(array_to_json errors_array)
-
-	# Test integration marker
 	echo "orchestrated framework detector" >&2
 	echo "detection phase completed" >&2
 }
@@ -1199,17 +1109,6 @@ output_framework_detection_results() {
 # BATS Framework Adapter
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # BATS adapter detection function
 bats_adapter_detect() {
@@ -1349,77 +1248,125 @@ bats_adapter_get_detection_method() {
 	echo "unknown"
 }
 
+# Helper: Discover test directories
+_bats_discover_test_directories() {
+	local project_root="$1"
+	local test_dirs=(
+		"$project_root/tests/bats"
+		"$project_root/test/bats"
+		"$project_root/tests"
+		"$project_root/test"
+	)
+	local bats_files=()
+	local seen_files=()
+
+	for dir in "${test_dirs[@]}"; do
+		if [[ -d "$dir" ]]; then
+			local found_files
+			found_files=$(find_bats_files "$dir")
+			if [[ -n "$found_files" ]]; then
+				while IFS= read -r file; do
+					if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+						bats_files+=("$file")
+						seen_files+=("$(normalize_path "$file")")
+					fi
+				done <<< "$found_files"
+			fi
+		fi
+	done
+
+	# Output files first, then seen_files
+	printf '%s\n' "${bats_files[@]}"
+	printf '%s\n' "${seen_files[@]}"
+}
+
+# Helper: Discover root files
+_bats_discover_root_files() {
+	local project_root="$1"
+	local -a test_dirs=("$@")  # Remaining args are test_dirs
+	local -a seen_files=()     # Next arg should be seen_files
+	local shift_count=$(( ${#test_dirs[@]} + 1 ))
+	shift "$shift_count"
+
+	local root_files
+	root_files=$(find_bats_files "$project_root")
+	local root_bats_files=()
+
+	if [[ -n "$root_files" ]]; then
+		while IFS= read -r file; do
+			if [[ -n "$file" ]]; then
+				# Skip if file is in a test directory we already scanned
+				local skip=0
+				for test_dir in "${test_dirs[@]}"; do
+					if [[ "$file" == "$test_dir"/* ]]; then
+						skip=1
+						break
+					fi
+				done
+
+				if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
+					root_bats_files+=("$file")
+				fi
+			fi
+		done <<< "$root_files"
+	fi
+
+	printf '%s\n' "${root_bats_files[@]}"
+}
+
+# Helper: Build suites JSON
+_bats_build_suites_json() {
+	local project_root="$1"
+	shift
+	local bats_files=("$@")
+
+	if [[ ${#bats_files[@]} -eq 0 ]]; then
+		echo "[]"
+		return
+	fi
+
+	local suites_json="["
+	for file in "${bats_files[@]}"; do
+		local rel_path="${file#$project_root/}"
+		rel_path="${rel_path#/}"
+		local suite_name=$(generate_suite_name "$file" "bats")
+		local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
+
+		suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
+			"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	done
+	suites_json="${suites_json%,}]"
+
+	echo "$suites_json"
+}
+
 # BATS adapter discover test suites method
 bats_adapter_discover_test_suites() {
 	local project_root="$1"
 	local framework_metadata="$2"
 
-	# Use existing discovery logic to populate DISCOVERED_SUITES
-	# Discover BATS test suites using adapter pattern
-	local bats_files=()
-	local seen_files=()
-
-	# Check common BATS directory patterns (in order of specificity)
+	local discovery_results
+	discovery_results=$(_bats_discover_test_directories "$project_root")
 	local test_dirs=(
-	"$project_root/tests/bats"
-	"$project_root/test/bats"
-	"$project_root/tests"
-	"$project_root/test"
+		"$project_root/tests/bats"
+		"$project_root/test/bats"
+		"$project_root/tests"
+		"$project_root/test"
 	)
 
-	# Scan for .bats files in common directories
-	for dir in "${test_dirs[@]}"; do
-	if [[ -d "$dir" ]]; then
-	local found_files
-	found_files=$(find_bats_files "$dir")
-	if [[ -n "$found_files" ]]; then
-	while IFS= read -r file; do
-	if [[ -n "$file" ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-	bats_files+=("$file")
-	seen_files+=("$(normalize_path "$file")")
-	fi
-	done <<< "$found_files"
-	fi
-	fi
-	done
+	local all_bats_files=()
+	local seen_files=()
+	mapfile -t all_bats_files < <(echo "$discovery_results" | head -4)
+	mapfile -t seen_files < <(echo "$discovery_results" | tail -n +5)
 
-	# Also scan project root for .bats files (but exclude files already found in test dirs)
 	local root_files
-	root_files=$(find_bats_files "$project_root")
-	if [[ -n "$root_files" ]]; then
-	while IFS= read -r file; do
-	if [[ -n "$file" ]]; then
-	# Skip if file is in a test directory we already scanned
-	local skip=0
-	for test_dir in "${test_dirs[@]}"; do
-	if [[ "$file" == "$test_dir"/* ]]; then
-	skip=1
-	break
-	fi
-	done
+	root_files=$(_bats_discover_root_files "$project_root" "${test_dirs[@]}" "${seen_files[@]}")
+	local root_bats_files=()
+	mapfile -t root_bats_files < <(echo "$root_files")
 
-	if [[ $skip -eq 0 ]] && ! is_file_seen "$file" "${seen_files[@]}"; then
-	bats_files+=("$file")
-	seen_files+=("$(normalize_path "$file")")
-	fi
-	fi
-	done <<< "$root_files"
-	fi
+	all_bats_files+=("${root_bats_files[@]}")
 
-	# Return JSON format as expected by interface
-	local suites_json="["
-	for file in "${bats_files[@]}"; do
-	local rel_path="${file#$project_root/}"
-	rel_path="${rel_path#/}"
-	local suite_name=$(generate_suite_name "$file" "bats")
-	local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
-
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
-		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
-	done
-	suites_json="${suites_json%,}]"
-
-	echo "$suites_json"
+	_bats_build_suites_json "$project_root" "${all_bats_files[@]}"
 }
 
 # BATS adapter detect build requirements method
@@ -1542,17 +1489,6 @@ find_bats_files() {
 # Rust Framework Adapter
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Rust adapter detection function
 rust_adapter_detect() {
@@ -1683,23 +1619,12 @@ rust_adapter_get_detection_method() {
 	echo "unknown"
 }
 
-# Rust adapter discover test suites method
-rust_adapter_discover_test_suites() {
-	local project_root="$1"
-	local framework_metadata="$2"
-
-	# Only discover Rust test suites if Cargo.toml exists
-	if [[ ! -f "$project_root/Cargo.toml" ]]; then
-	echo "[]"
-	return 0
-	fi
-
-	local src_dir="$project_root/src"
-	local tests_dir="$project_root/tests"
+# Helper: Discover unit tests in src directory
+_rust_discover_unit_tests() {
+	local src_dir="$1"
+	local project_root="$2"
 	local rust_files=()
-	local json_files=()
 
-	# Discover unit tests in src/ directory
 	if [[ -d "$src_dir" ]]; then
 	local src_files
 	src_files=$(find_rust_test_files "$src_dir")
@@ -1707,24 +1632,38 @@ rust_adapter_discover_test_suites() {
 	while IFS= read -r file; do
 	if [[ -n "$file" ]] && grep -q '#\[cfg(test)\]' "$file" 2>/dev/null; then
 	rust_files+=("$file")
-	json_files+=("$file")
 	fi
 	done <<< "$src_files"
 	fi
 	fi
 
-	# Discover integration tests in tests/ directory
+	echo "${rust_files[@]}"
+}
+
+# Helper: Discover integration tests in tests directory
+_rust_discover_integration_tests() {
+	local tests_dir="$1"
+	local rust_files=()
+
 	if [[ -d "$tests_dir" ]]; then
 	local integration_files
 	integration_files=$(find_rust_test_files "$tests_dir")
 	if [[ -n "$integration_files" ]]; then
 	while IFS= read -r file; do
-	[[ -n "$file" ]] && rust_files+=("$file") && json_files+=("$file")
+	[[ -n "$file" ]] && rust_files+=("$file")
 	done <<< "$integration_files"
 	fi
 	fi
 
-	# Return JSON format as expected by interface
+	echo "${rust_files[@]}"
+}
+
+# Helper: Build JSON for discovered test suites
+_rust_build_test_suites_json() {
+	local project_root="$1"
+	shift
+	local json_files=("$@")
+
 	local suites_json="["
 	for file in "${json_files[@]}"; do
 	local rel_path="${file#$project_root/}"
@@ -1738,6 +1677,38 @@ rust_adapter_discover_test_suites() {
 	suites_json="${suites_json%,}]"
 
 	echo "$suites_json"
+}
+
+# Rust adapter discover test suites method
+rust_adapter_discover_test_suites() {
+	local project_root="$1"
+	local framework_metadata="$2"
+
+	# Only discover Rust test suites if Cargo.toml exists
+	if [[ ! -f "$project_root/Cargo.toml" ]]; then
+	echo "[]"
+	return 0
+	fi
+
+	local src_dir="$project_root/src"
+	local tests_dir="$project_root/tests"
+
+	# Discover test files using helpers
+	local unit_tests
+	unit_tests=$(_rust_discover_unit_tests "$src_dir" "$project_root")
+
+	local integration_tests
+	integration_tests=$(_rust_discover_integration_tests "$tests_dir")
+
+	# Combine all test files
+	local all_test_files=($unit_tests $integration_tests)
+
+	# Build JSON output using helper
+	if [[ ${#all_test_files[@]} -eq 0 ]]; then
+	echo "[]"
+	else
+	_rust_build_test_suites_json "$project_root" "${all_test_files[@]}"
+	fi
 }
 
 # Rust adapter detect build requirements method
@@ -1862,17 +1833,6 @@ find_rust_test_files() {
 # Main Scanner Functions
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Source JSON helper functions
 if [[ -f "json_helpers.sh" ]]; then
@@ -1883,6 +1843,156 @@ elif [[ -f "../src/json_helpers.sh" ]]; then
 	source "../src/json_helpers.sh"
 fi
 
+# Helper: Register test adapters
+_scan_register_test_adapters() {
+	# Register adapters for test frameworks
+	adapter_registry_register "bats"
+	adapter_registry_register "rust"
+}
+
+# Helper: Process detected framework
+_scan_process_framework() {
+	local framework="$1"
+	local framework_details="$2"
+
+	# Extract framework information
+	local framework_name
+	framework_name=$(json_get "$framework_details" ".framework")
+	local test_suites
+	test_suites=$(json_get "$framework_details" ".test_suites")
+
+	# Validate test suites exist
+	if [[ -z "$test_suites" ]] || [[ "$test_suites" == "null" ]]; then
+		echo "WARNING: Framework $framework_name has no test suites" >&2
+		return
+	fi
+
+	# Generate build requirements for this framework
+	local build_requirements
+	build_requirements=$(adapter_registry_get "$framework_name")
+
+	if [[ -z "$build_requirements" ]]; then
+		echo "WARNING: No build requirements found for framework $framework_name" >&2
+		return
+	fi
+
+	# Add to detected frameworks
+	local framework_info
+	framework_info=$(json_set "{}" ".framework" "\"$framework_name\"")
+	framework_info=$(json_set "$framework_info" ".build_requirements" "$build_requirements")
+	framework_info=$(json_set "$framework_info" ".test_suites" "$test_suites")
+
+	detected_frameworks=$(json_merge "$detected_frameworks" "[$framework_info]")
+}
+
+# Helper: Parse frameworks JSON
+_scan_parse_frameworks_json() {
+	local detected_list="$1"
+	local frameworks=()
+	if [[ "$detected_list" != "[]" ]]; then
+		detected_list=$(echo "$detected_list" | sed 's/^\[//' | sed 's/\]$//')
+		IFS=',' read -ra frameworks <<< "$detected_list"
+		for i in "${!frameworks[@]}"; do
+			frameworks[i]=$(echo "${frameworks[i]}" | sed 's/^"//' | sed 's/"$//')
+		done
+	fi
+	printf '%s\n' "${frameworks[@]}"
+}
+
+# Helper: Process framework discovery
+_scan_process_framework_discovery() {
+	local framework="$1"
+	local project_root="$2"
+	local adapter_metadata
+	adapter_metadata=$(adapter_registry_get "$framework")
+
+	if [[ "$adapter_metadata" == "null" ]]; then
+		echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$framework'" >&2
+		return 1
+	fi
+
+	echo "validated $framework" >&2
+	echo "registry integration verified for $framework" >&2
+	DETECTED_FRAMEWORKS+=("$framework")
+	PROCESSED_FRAMEWORKS+=("$framework")
+
+	local display_name="$framework"
+	case "$framework" in
+	"bats") display_name="BATS" ;;
+	"rust") display_name="Rust" ;;
+	esac
+
+	echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
+	echo "processed $framework" >&2
+	echo "continue processing frameworks" >&2
+
+	echo "registry discover_test_suites $framework" >&2
+	echo "discover_test_suites $framework" >&2
+	local suites_json
+	if suites_json=$("${framework}_adapter_discover_test_suites" "$project_root" "$adapter_metadata" 2>/dev/null); then
+		local parsed_suites=()
+		mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$project_root")
+		for suite_entry in "${parsed_suites[@]}"; do
+			DISCOVERED_SUITES+=("$suite_entry")
+		done
+	else
+		echo "failed discovery $framework" >&2
+	fi
+
+	echo "aggregated $framework" >&2
+	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
+		echo "discovered suites for $framework" >&2
+		echo "test files found for $framework" >&2
+	fi
+	return 0
+}
+
+# Helper: Format framework output
+_output_format_frameworks() {
+	if [[ ${#DETECTED_FRAMEWORKS[@]} -eq 0 ]]; then
+		echo -e "${RED}✗${NC} No test frameworks detected" >&2
+		echo "" >&2
+		echo "No test suites found in this project." >&2
+		echo "" >&2
+		echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
+		echo "" >&2
+		echo "To use Suitey, ensure your project has:" >&2
+		echo "  - Test files with .bats extension" >&2
+		echo "  - Test files in common directories: tests/, test/, tests/bats/, etc." >&2
+		echo "  - Rust projects with Cargo.toml and test files in src/ or tests/ directories" >&2
+		exit 2
+	fi
+}
+
+# Helper: Format suites output
+_output_format_suites() {
+	if [[ ${#DISCOVERED_SUITES[@]} -eq 0 ]]; then
+		echo -e "${RED}✗${NC} No test suites found" >&2
+		echo "" >&2
+
+		if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
+			echo "Errors:" >&2
+			for error in "${SCAN_ERRORS[@]}"; do
+				echo -e "  ${RED}•${NC} $error" >&2
+			done
+			echo "" >&2
+		fi
+
+		echo "No test suites were discovered in this project." >&2
+		echo "" >&2
+		echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
+		exit 2
+	fi
+
+	echo "Test Suites:" >&2
+	for suite in "${DISCOVERED_SUITES[@]}"; do
+		IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
+		echo -e "  ${BLUE}•${NC} $suite_name - $framework" >&2
+		echo "    Path: $rel_path" >&2
+		echo "    Tests: $test_count" >&2
+	done
+}
+
 # Scan project for test frameworks and suites
 scan_project() {
 	echo "Scanning project: $PROJECT_ROOT" >&2
@@ -1891,16 +2001,8 @@ scan_project() {
 	# Initialize adapter registry for orchestration
 	adapter_registry_initialize
 
-	# Register any test adapters that are available (for testing)
-	local potential_adapters=(
-		"comprehensive_adapter" "results_adapter1" "results_adapter2"
-		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
-	)
-	for adapter_name in "${potential_adapters[@]}"; do
-	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
-	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
-	fi
-	done
+	# Register test adapters using helper
+	_scan_register_test_adapters
 
 	# Test integration marker
 	echo "detection phase then discovery phase" >&2
@@ -1908,76 +2010,11 @@ scan_project() {
 	# Use Framework Detector to detect frameworks
 	detect_frameworks "$PROJECT_ROOT"
 
-	# Parse detected frameworks from JSON and discover suites
-	# Extract framework list from JSON (simple parsing for backward compatibility)
-	local detected_list="$DETECTED_FRAMEWORKS_JSON"
-	local frameworks=()
-	if [[ "$detected_list" != "[]" ]]; then
-	# Remove brackets and split by comma using sed
-	detected_list=$(echo "$detected_list" | sed 's/^\[//' | sed 's/\]$//')
-	# Split by comma and remove quotes
-	IFS=',' read -ra frameworks <<< "$detected_list"
-	for i in "${!frameworks[@]}"; do
-	frameworks[i]=$(echo "${frameworks[i]}" | sed 's/^"//' | sed 's/"$//')
-	done
-	fi
+	local frameworks
+	frameworks=$(_scan_parse_frameworks_json "$DETECTED_FRAMEWORKS_JSON")
 
-	for framework in "${frameworks[@]}"; do
-	# Get adapter metadata from registry
-	local adapter_metadata
-	adapter_metadata=$(adapter_registry_get "$framework")
-
-	if [[ "$adapter_metadata" == "null" ]]; then
-	echo -e "${YELLOW}⚠${NC} Adapter not found for framework '$framework'" >&2
-	continue
-	fi
-
-	# Test integration markers
-	echo "validated $framework" >&2
-	echo "registry integration verified for $framework" >&2
-
-	# Add to detected frameworks
-	DETECTED_FRAMEWORKS+=("$framework")
-
-	# Track all processed frameworks (for test assertions)
-	PROCESSED_FRAMEWORKS+=("$framework")
-
-	# Capitalize framework name for display
-	local display_name="$framework"
-	case "$framework" in
-	"bats")
-	display_name="BATS"
-	;;
-	"rust")
-	display_name="Rust"
-	;;
-	esac
-
-	echo -e "${GREEN}✓${NC} $display_name framework detected" >&2
-	echo "processed $framework" >&2
-	echo "continue processing frameworks" >&2
-
-	# Use adapter discovery methods for all frameworks
-	echo "registry discover_test_suites $framework" >&2
-	echo "discover_test_suites $framework" >&2
-	local suites_json
-	if suites_json=$("${framework}_adapter_discover_test_suites" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
-	# Parse JSON and convert to DISCOVERED_SUITES format
-	local parsed_suites=()
-	mapfile -t parsed_suites < <(parse_test_suites_json "$suites_json" "$framework" "$PROJECT_ROOT")
-	for suite_entry in "${parsed_suites[@]}"; do
-	DISCOVERED_SUITES+=("$suite_entry")
-	done
-	else
-	echo "failed discovery $framework" >&2
-	fi
-
-	# Add test markers that assertions expect
-	echo "aggregated $framework" >&2
-	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
-	echo "discovered suites for $framework" >&2
-	echo "test files found for $framework" >&2
-	fi
+	for framework in $frameworks; do
+	_scan_process_framework_discovery "$framework" "$PROJECT_ROOT"
 	done
 
 	# Test integration marker
@@ -1985,17 +2022,13 @@ scan_project() {
 	echo "discovery phase completed" >&2
 	echo "discovery phase then build phase" >&2
 
-	# Check if any frameworks were detected
-	local framework_count="${#frameworks[@]}"
+	local framework_count=$(echo "$frameworks" | wc -l)
 	if [[ $framework_count -eq 0 ]]; then
 	echo -e "${YELLOW}⚠${NC} No test frameworks detected" >&2
 	fi
 
-	# Detect build requirements using adapters
-	detect_build_requirements "${frameworks[@]}"
-
-	# Test integration marker for test_image parameter
-	for framework in "${frameworks[@]}"; do
+	detect_build_requirements $(echo "$frameworks")
+	for framework in $frameworks; do
 	echo "test_image passed to $framework" >&2
 	done
 
@@ -2129,49 +2162,15 @@ test_suite_discovery_with_registry() {
 
 # Output scan results
 output_results() {
-	# Output detected frameworks
-	if [[ ${#DETECTED_FRAMEWORKS[@]} -eq 0 ]]; then
-	echo -e "${RED}✗${NC} No test frameworks detected" >&2
-	echo "" >&2
-	echo "No test suites found in this project." >&2
-	echo "" >&2
-	echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
-	echo "" >&2
-	echo "To use Suitey, ensure your project has:" >&2
-	echo "  - Test files with .bats extension" >&2
-	echo "  - Test files in common directories: tests/, test/, tests/bats/, etc." >&2
-	echo "  - Rust projects with Cargo.toml and test files in src/ or tests/ directories" >&2
-	exit 2
-	fi
+	_output_format_frameworks
+	_output_format_suites
 
-	# Output discovered test suites
-	if [[ ${#DISCOVERED_SUITES[@]} -eq 0 ]]; then
-	echo -e "${RED}✗${NC} No test suites found" >&2
-	echo "" >&2
-
-	if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
-	echo "Errors:" >&2  # documented: Displaying scan errors to user
-	for error in "${SCAN_ERRORS[@]}"; do
-	echo -e "  ${RED}•${NC} $error" >&2  # documented: Displaying individual scan error
-	done
-	echo "" >&2
-	fi
-
-	echo "No test suites were discovered in this project." >&2
-	echo "" >&2
-	echo "Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
-	exit 2
-	fi
-
-	# Output scan summary
 	echo -e "${GREEN}✓${NC} Detected frameworks: ${DETECTED_FRAMEWORKS[*]}" >&2
 	local suite_count=${#DISCOVERED_SUITES[@]}
 	echo -e "${GREEN}✓${NC} Discovered $suite_count test suite" >&2
 
-	# Output build requirements summary
 	if [[ -n "${BUILD_REQUIREMENTS_JSON:-}" && "$BUILD_REQUIREMENTS_JSON" != "{}" ]]; then
 	echo -e "${GREEN}✓${NC} Build requirements detected and aggregated from registry components" >&2
-	# Test integration markers
 	for framework in "${DETECTED_FRAMEWORKS[@]}"; do
 	echo "aggregated $framework" >&2
 	done
@@ -2179,25 +2178,14 @@ output_results() {
 
 	echo "" >&2
 
-	# Output errors if any
 	if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
 	echo -e "${YELLOW}⚠${NC} Warnings:" >&2
 	for error in "${SCAN_ERRORS[@]}"; do
-	echo -e "  ${YELLOW}•${NC} $error" >&2  # documented: Displaying individual scan warning
+	echo -e "  ${YELLOW}•${NC} $error" >&2
 	done
 	echo "" >&2
 	fi
 
-	# Output discovered test suites
-	echo "Test Suites:" >&2
-	for suite in "${DISCOVERED_SUITES[@]}"; do
-	IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite"
-	echo -e "  ${BLUE}•${NC} $suite_name - $framework" >&2
-	echo "    Path: $rel_path" >&2
-	echo "    Tests: $test_count" >&2
-	done
-
-	# Test integration markers
 	if [[ ${#DISCOVERED_SUITES[@]} -gt 0 ]]; then
 	echo "unified results from registry-based components" >&2
 	for framework in "${PROCESSED_FRAMEWORKS[@]}"; do
@@ -2214,19 +2202,7 @@ output_results() {
 # ============================================================================
 # ============================================================================
 # Build Manager
-# ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Source mock manager for enhanced testing (only in test mode)
 if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
@@ -2247,6 +2223,55 @@ elif [[ -f "../src/json_helpers.sh" ]]; then
 	source "../src/json_helpers.sh"
 fi
 
+# Source build manager helper files
+if [[ -f "build_manager_docker.sh" ]]; then
+	source "build_manager_docker.sh"
+elif [[ -f "src/build_manager_docker.sh" ]]; then
+	source "src/build_manager_docker.sh"
+elif [[ -f "../src/build_manager_docker.sh" ]]; then
+	source "../src/build_manager_docker.sh"
+fi
+
+if [[ -f "build_manager_core_helpers.sh" ]]; then
+	source "build_manager_core_helpers.sh"
+elif [[ -f "src/build_manager_core_helpers.sh" ]]; then
+	source "src/build_manager_core_helpers.sh"
+elif [[ -f "../src/build_manager_core_helpers.sh" ]]; then
+	source "../src/build_manager_core_helpers.sh"
+fi
+
+if [[ -f "build_manager_build_helpers.sh" ]]; then
+	source "build_manager_build_helpers.sh"
+elif [[ -f "src/build_manager_build_helpers.sh" ]]; then
+	source "src/build_manager_build_helpers.sh"
+elif [[ -f "../src/build_manager_build_helpers.sh" ]]; then
+	source "../src/build_manager_build_helpers.sh"
+fi
+
+if [[ -f "build_manager_container.sh" ]]; then
+	source "build_manager_container.sh"
+elif [[ -f "src/build_manager_container.sh" ]]; then
+	source "src/build_manager_container.sh"
+elif [[ -f "../src/build_manager_container.sh" ]]; then
+	source "../src/build_manager_container.sh"
+fi
+
+if [[ -f "build_manager_execution.sh" ]]; then
+	source "build_manager_execution.sh"
+elif [[ -f "src/build_manager_execution.sh" ]]; then
+	source "src/build_manager_execution.sh"
+elif [[ -f "../src/build_manager_execution.sh" ]]; then
+	source "../src/build_manager_execution.sh"
+fi
+
+if [[ -f "build_manager_integration.sh" ]]; then
+	source "build_manager_integration.sh"
+elif [[ -f "src/build_manager_integration.sh" ]]; then
+	source "src/build_manager_integration.sh"
+elif [[ -f "../src/build_manager_integration.sh" ]]; then
+	source "../src/build_manager_integration.sh"
+fi
+
 # Build Manager state variables
 BUILD_MANAGER_TEMP_DIR=""
 BUILD_MANAGER_ACTIVE_CONTAINERS=()
@@ -2256,98 +2281,7 @@ BUILD_MANAGER_SIGNAL_RECEIVED=false
 BUILD_MANAGER_SECOND_SIGNAL=false
 
 # ============================================================================
-# Docker Wrapper Functions (for testability)
-# ============================================================================
-
-# Wrapper for docker run command (test interface)
-docker_run() {
-	# Detect if this is complex arguments (real usage) or simple arguments (test usage)
-	if [[ $# -le 5 ]] && [[ "$1" != -* ]] && [[ "$2" != -* ]]; then
-	# Simple interface: docker_run container_name image command [exit_code] [output]
-	# This is the test/mock interface - tests override this function
-	local container_name="$1"
-	local image="$2"
-	local command="$3"
-	local exit_code="${4:-0}"
-	local output="${5:-Mock Docker run output}"
-
-	echo "$output"
-	return $exit_code
-	else
-	# Complex interface: docker_run [docker options...] image command
-	# Transform complex arguments to simple interface for mocking
-	local simple_args
-	simple_args=$(transform_docker_args "$@")
-
-	# Extract the simple parameters
-	local container_name image command
-	read -r container_name <<< "$(echo "$simple_args" | head -1)"
-	read -r image <<< "$(echo "$simple_args" | head -2 | tail -1)"
-	read -r command <<< "$(echo "$simple_args" | head -3 | tail -1)"
-
-	# Call the simple interface (which tests override)
-	docker_run "$container_name" "$image" "$command"
-	fi
-}
-
-# Execute real docker run command
-_execute_docker_run() {
-	local container_name="$1"
-	local image="$2"
-	local command="$3"
-	local cpu_cores="$4"
-	local project_root="$5"
-	local artifacts_dir="$6"
-	local working_dir="$7"
-
-	# Build docker run command with proper options
-	local docker_cmd=("docker" "run" "--rm" "--name" "$container_name")
-
-	if [[ -n "$cpu_cores" ]]; then
-	docker_cmd+=("--cpus" "$cpu_cores")
-	fi
-
-	if [[ -n "$project_root" ]]; then
-	docker_cmd+=("-v" "$project_root:/workspace")
-	fi
-
-	if [[ -n "$artifacts_dir" ]]; then
-	docker_cmd+=("-v" "$artifacts_dir:/artifacts")
-	fi
-
-	if [[ -n "$working_dir" ]]; then
-	docker_cmd+=("-w" "$working_dir")
-	fi
-
-	docker_cmd+=("$image" "/bin/sh" "-c" "$command")
-
-	# Execute the command
-	"${docker_cmd[@]}"
-}
-
-# Wrapper for docker build command
-docker_build() {
-	# Check if this looks like a mock call (simple parameters) or real call (complex parameters)
-	if [[ $# -le 3 ]] && [[ "$1" != -* ]]; then
-	# Looks like mock interface: docker_build context_dir image_name [exit_code]
-	# This is handled by test mocks
-	return 0
-	else
-	# Real Docker interface
-	docker build "$@"
-	fi
-}
-
-# Wrapper for docker cp command
-docker_cp() {
-	local source="$1"
-	local dest="$2"
-
-	docker cp "$source" "$dest"
-}
-
-# ============================================================================
-# Initialization Functions
+# Core Functions
 # ============================================================================
 
 # Initialize the Build Manager
@@ -2394,8 +2328,7 @@ build_manager_check_docker() {
 
 	# Check if Docker daemon is accessible
 	if ! docker info &> /dev/null; then
-	# documented: Docker daemon not running or permissions issue
-	echo "ERROR: Docker daemon is not running or not accessible" >&2
+	echo "ERROR: Cannot connect to Docker daemon" >&2  # documented: Docker daemon not accessible
 	return 1
 	fi
 
@@ -2422,10 +2355,6 @@ build_manager_get_cpu_cores() {
 	echo $((cores > 0 ? cores : 1))
 }
 
-# ============================================================================
-# Orchestration Functions
-# ============================================================================
-
 # Main orchestration function that receives build requirements from Project Scanner
 # Arguments:
 #   build_requirements_json: JSON string with build requirements
@@ -2433,125 +2362,41 @@ build_manager_get_cpu_cores() {
 build_manager_orchestrate() {
 	local build_requirements_json="$1"
 
-	# Validate input
-	if [[ -z "$build_requirements_json" ]]; then
-	echo '{"error": "No build requirements provided"}'  # documented: Orchestrate called without build requirements
-	return 1
+	[[ -z "$build_requirements_json" ]] && echo '{"error": "No build requirements provided"}' && return 1
+
+	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]] && ! build_manager_initialize; then
+		echo '{"error": "Failed to initialize Build Manager"}'
+		return 1
 	fi
 
-	# Initialize if not already done
-	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]]; then
-	if ! build_manager_initialize; then
-	echo '{"error": "Failed to initialize Build Manager"}'  # documented: Build manager initialization failed
-	return 1
-	fi
-	fi
+	! build_manager_validate_requirements "$build_requirements_json" && \
+		echo '{"error": "Invalid build requirements structure"}' && return 1
 
-	# Validate build requirements structure
-	if ! build_manager_validate_requirements "$build_requirements_json"; then
-	echo '{"error": "Invalid build requirements structure"}'  # documented: Build requirements JSON is malformed
-	return 1
-	fi
-
-	# Convert JSON to Bash arrays for internal processing
 	local -a build_reqs_array
 	build_requirements_json_to_array "$build_requirements_json" build_reqs_array
 
-	# Analyze dependencies and group builds (using arrays internally)
 	local -A dependency_analysis
 	build_manager_analyze_dependencies_array build_reqs_array dependency_analysis
 
-	# Execute builds by dependency tiers
 	local build_results="[]"
-	local success=true
 
 	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
-	# Test mode: return mock results without executing builds
-	local framework_count="${#build_reqs_array[@]}"
-
-	for ((i=0; i<framework_count; i++)); do
-	local framework
-	framework=$(json_get "${build_reqs_array[$i]}" ".framework")
-	local mock_result
-	mock_result=$(json_set "{}" ".framework" "\"$framework\"" | \
-		json_set "." ".status" "\"built\"" | \
-		json_set "." ".duration" "1.5" | \
-		json_set "." ".container_id" "\"mock_container_123\"")
-	build_results=$(json_merge "$build_results" "[$mock_result]")
-	done
+		build_results=$(_build_manager_generate_mock_results \
+			"${#build_reqs_array[@]}" "${build_reqs_array[@]}")
 	else
-	# Production mode: actually execute builds
-	# Parse dependency tiers and execute
-	local tier_count=0
-	# Count tiers in dependency_analysis
-	for key in "${!dependency_analysis[@]}"; do
-	if [[ "$key" == tier_*_json ]]; then
-	((tier_count++))
-	fi
-	done
-
-	for ((tier=0; tier<tier_count; tier++)); do
-	local tier_key="tier_${tier}_json"
-	if [[ -v dependency_analysis["$tier_key"] ]]; then
-	local tier_frameworks_json="${dependency_analysis[$tier_key]}"
-	local -a tier_frameworks_array
-	json_to_array "$tier_frameworks_json" tier_frameworks_array
-
-	if [[ ${#tier_frameworks_array[@]} -gt 0 ]]; then
-	# Get build specs for frameworks in this tier (keep as JSON array for now)
-	local -a tier_build_specs_array=()
-	for framework in "${tier_frameworks_array[@]}"; do
-	# Find the build spec for this framework
-	for req_json in "${build_reqs_array[@]}"; do
-	local req_framework
-	req_framework=$(json_get "$req_json" ".framework")
-	if [[ "$req_framework" == "$framework" ]]; then
-	tier_build_specs_array+=("$req_json")
-	break
-	fi
-	done
-	done
-
-	# Execute builds in this tier
-	local tier_build_specs_json
-	tier_build_specs_json=$(array_to_json tier_build_specs_array)
-	local tier_results
-	tier_results=$(build_manager_execute_parallel "$tier_build_specs_json")
-
-	# Merge results
-	build_results=$(json_merge "$build_results" "$tier_results")
-
-	# Check for failures
-	local has_failures=false
-	local tier_length
-	tier_length=$(json_array_length "$tier_results")
-	for ((k=0; k<tier_length; k++)); do
-	local status_val
-	status_val=$(json_get "$tier_results" ".[$k].status")
-	if [[ "$status_val" == "build-failed" ]]; then
-	has_failures=true
-	break
-	fi
-	done
-
-	if [[ "$has_failures" == "true" ]]; then
-	success=false
-	break
-	fi
-	fi
-	fi
-	done
+		local tier_count=$(_build_manager_count_tiers dependency_analysis)
+		local tier_result
+		if tier_result=$(_build_manager_execute_tier_loop \
+			"$tier_count" dependency_analysis build_reqs_array "$build_results"); then
+			build_results="$tier_result"
+		else
+			build_results=$(echo "$tier_result" | head -1)
+			echo "$build_results"
+			return 1
+		fi
 	fi
 
-	# Return results
-	if [[ "$success" == "true" ]]; then
 	echo "$build_results"
-	return 0
-	else
-	# Return results but indicate failure
-	echo "$build_results"
-	return 1
-	fi
 }
 
 # Analyze build dependencies and group builds into dependency tiers
@@ -2564,85 +2409,18 @@ build_manager_analyze_dependencies() {
 	# Parse frameworks
 	local frameworks=()
 	while IFS= read -r framework; do
-	frameworks+=("$framework")
+		frameworks+=("$framework")
 	done < <(json_get_array "$build_requirements_json" ".framework")
 
-	# Check for circular dependencies (simple check)
+	# Check for circular dependencies
 	local count
 	count=$(json_array_length "$build_requirements_json")
-
-	for ((i=0; i<count; i++)); do
-	local framework
-	framework=$(json_get "$build_requirements_json" ".[$i].framework")
-	local deps
-	deps=$(json_get "$build_requirements_json" ".[$i].build_dependencies // [] | join(\" \")")
-
-	# Simple circular dependency check
-	if [[ -n "$deps" ]]; then
-	for ((j=0; j<count; j++)); do
-	if [[ $i != $j ]]; then
-	local other_framework
-	other_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	local other_deps
-	other_deps=$(json_get "$build_requirements_json" ".[$j].build_dependencies // [] | join(\" \")")
-
-	# Check if there's a cycle
-	if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$framework"* ]]; then
-	# documented: Build frameworks have circular dependency
-	echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2
-	return 1
-	fi
-	fi
-	done
-	fi
-	done
-
-	# Create tier analysis with proper dependency ordering
-	local analysis='{"tiers": []}'
-
-	# Simple dependency analysis - put frameworks with no dependencies in tier_0,
-	# frameworks that depend on tier_0 frameworks in tier_1, etc.
-	local tier_0=()
-	local tier_1=()
-
-	for framework in "${frameworks[@]}"; do
-	# Get dependencies for this framework
-	local deps_length
-	# Find the framework and get its dependency count
-	for ((j=0; j<count; j++)); do
-	local temp_framework
-	temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	if [[ "$temp_framework" == "$framework" ]]; then
-	deps_length=$(json_get "$build_requirements_json" ".[$j].build_dependencies // [] | length")
-	break
-	fi
-	done
-
-	if [[ "$deps_length" == "0" ]]; then
-	# No dependencies, goes in tier_0
-	tier_0+=("$framework")
-	else
-	# Has dependencies, goes in tier_1 for now
-	tier_1+=("$framework")
-	fi
-	done
-
-	# Add tiers to analysis
-	if [[ ${#tier_0[@]} -gt 0 ]]; then
-	tier_0_json=$(array_to_json tier_0)
-	analysis=$(json_set "$analysis" ".tier_0" "$tier_0_json")
-	fi
-	if [[ ${#tier_1[@]} -gt 0 ]]; then
-	tier_1_json=$(array_to_json tier_1)
-	analysis=$(json_set "$analysis" ".tier_1" "$tier_1_json")
+	if ! _build_manager_check_circular_deps "$build_requirements_json" "$count"; then
+		return 1
 	fi
 
-	# Add metadata about parallel execution within tiers
-	local parallel_note='"Frameworks within the same tier can be built in parallel"'
-	analysis=$(json_set "$analysis" ".parallel_within_tiers" "true")
-	analysis=$(json_set "$analysis" ".execution_note" "$parallel_note")
-
-	echo "$analysis"
+	# Create tier analysis
+	_build_manager_group_into_tiers "$build_requirements_json" "$count"
 }
 
 # Array-based version of build_manager_analyze_dependencies
@@ -2695,243 +2473,6 @@ build_manager_analyze_dependencies_array() {
 	dependency_analysis_ref["execution_note"]="Frameworks within the same tier can be built in parallel"
 }
 
-# Detect circular dependencies in dependency graph
-# Arguments:
-#   dep_graph: JSON object mapping frameworks to their dependencies
-#   frameworks: Array of framework names
-# Returns: 0 if no circular dependencies, 1 if circular dependency found
-_detect_circular_dependencies() {
-	local dep_graph="$1"
-	shift
-	local frameworks=("$@")
-
-	# Simple cycle detection (for now, just check direct cycles)
-	for framework in "${frameworks[@]}"; do
-	local deps
-	deps=$(json_get "$dep_graph" ".\"$framework\" // \"\"")
-
-	for dep in $deps; do
-	# Check if dependency has this framework as dependency
-	local reverse_deps
-	reverse_deps=$(json_get "$dep_graph" ".\"$dep\" // \"\"")
-
-	if [[ "$reverse_deps" == *"$framework"* ]]; then
-	return 0  # Found circular dependency
-	fi
-	done
-	done
-
-	return 1  # No circular dependencies
-}
-
-# Execute multiple builds in parallel with CPU core limits
-# Arguments:
-#   builds_json: JSON array of build specifications
-# Returns: JSON array of build results
-build_manager_execute_parallel() {
-	local builds_json="$1"
-
-	local results="[]"
-	local max_parallel=$(build_manager_get_cpu_cores)
-	local active_builds=()
-	local build_pids=()
-
-	# Parse builds array
-	local build_count
-	build_count=$(json_array_length "$builds_json")
-
-	for ((i=0; i<build_count; i++)); do
-	local build_spec
-	build_spec=$(json_array_get "$builds_json" "$i")
-
-	if [[ -n "$build_spec" ]] && [[ "$build_spec" != "null" ]]; then
-	# Execute build in background if under parallel limit
-	if [[ ${#active_builds[@]} -lt max_parallel ]]; then
-	build_manager_execute_build_async "$build_spec" &
-	local pid=$!
-	build_pids+=("$pid")
-	active_builds+=("$i")
-	else
-	# Wait for a build to complete
-	wait "${build_pids[0]}"
-	unset build_pids[0]
-	build_pids=("${build_pids[@]}")
-
-	# Execute next build
-	build_manager_execute_build_async "$build_spec" &
-	local pid=$!
-	build_pids+=("$pid")
-	fi
-	fi
-	done
-
-	# Wait for all remaining builds
-	for pid in "${build_pids[@]}"; do
-	wait "$pid" 2>/dev/null || true
-	done
-
-	# Collect results from all builds
-	local result_files=("$BUILD_MANAGER_TEMP_DIR/builds"/*/result.json)
-	for result_file in "${result_files[@]}"; do
-	if [[ -f "$result_file" ]]; then
-	local result
-	result=$(cat "$result_file")
-	results=$(json_merge "$results" "[$result]")
-	fi
-	done
-
-	echo "$results"
-}
-
-# ============================================================================
-# Build Execution Functions
-# ============================================================================
-
-# Execute a single build in a Docker container
-# Arguments:
-#   build_spec_json: JSON build specification
-#   framework: framework identifier
-# Returns: JSON build result
-build_manager_execute_build() {
-	local build_spec_json="$1"
-	local framework="$2"
-
-	# Parse build specification
-	local docker_image
-	docker_image=$(json_get "$build_spec_json" '.docker_image')
-	local build_command
-	build_command=$(json_get "$build_spec_json" '.build_command')
-	local install_deps_cmd
-	install_deps_cmd=$(json_get "$build_spec_json" '.install_dependencies_command // empty')
-	local working_dir
-	working_dir=$(json_get "$build_spec_json" '.working_directory // "/workspace"')
-	local cpu_cores
-	cpu_cores=$(json_get "$build_spec_json" '.cpu_cores // empty')
-
-	# Set CPU cores
-	if [[ -z "$cpu_cores" ]] || [[ "$cpu_cores" == "null" ]]; then
-	cpu_cores=$(build_manager_get_cpu_cores)
-	fi
-
-	# Create build directory
-	local build_dir="$BUILD_MANAGER_TEMP_DIR/builds/$framework"
-	mkdir -p "$build_dir"
-
-	# Generate container name
-	local timestamp
-	timestamp=$(date +%Y%m%d-%H%M%S)
-	local random_suffix
-	random_suffix=$(printf "%04x" $((RANDOM % 65536)))
-	local container_name="suitey-build-$framework-$timestamp-$random_suffix"
-
-	# Track container
-	BUILD_MANAGER_ACTIVE_CONTAINERS+=("$container_name")
-
-	# Execute dependency installation if specified
-	local full_command=""
-	if [[ -n "$install_deps_cmd" ]]; then
-	full_command="$install_deps_cmd && $build_command"
-	else
-	full_command="$build_command"
-	fi
-
-	# Start time tracking
-	local start_time
-	start_time=$(date +%s.%3N)
-
-	# Execute build
-	local exit_code=0
-	local output_file="$build_dir/output.txt"
-
-	# Build Docker run arguments
-	local docker_args=("--rm" "--name" "$container_name" "--cpus" "$cpu_cores")
-	docker_args+=("-v" "$PROJECT_ROOT:/workspace")
-	docker_args+=("-v" "$build_dir/artifacts:/artifacts")
-	docker_args+=("-w" "$working_dir")
-
-	# Add environment variables
-	local env_vars
-	env_vars=$(json_get "$build_spec_json" '.environment_variables // {} | to_entries[] | (.key + "=" + .value)')
-	if [[ -n "$env_vars" ]]; then
-	while IFS= read -r env_var; do
-	if [[ -n "$env_var" ]]; then
-	docker_args+=("-e" "$env_var")
-	fi
-	done <<< "$env_vars"
-	fi
-
-	# Add volume mounts
-	local volume_mounts
-	volume_mounts=$(json_get "$build_spec_json" '.volume_mounts[]? | (.host_path + ":" + .container_path)')
-	if [[ -n "$volume_mounts" ]]; then
-	while IFS= read -r volume_mount; do
-	if [[ -n "$volume_mount" ]]; then
-	docker_args+=("-v" "$volume_mount")
-	fi
-	done <<< "$volume_mounts"
-	fi
-
-	# Execute docker command
-	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
-	# Test mode: use simple docker_run interface for mocks
-	docker_run "$container_name" "$docker_image" "$full_command" > "$output_file" 2>&1
-	exit_code=$?
-	else
-	# Real mode: use direct docker execution
-	_execute_docker_run "$container_name" "$docker_image" "$full_command" \
-		"$cpu_cores" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" \
-		> "$output_file" 2>&1
-	exit_code=$?
-	fi
-
-	# End time tracking
-	local end_time
-	end_time=$(date +%s.%3N)
-	local duration
-	duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "0")
-
-	# Create result JSON
-	local result
-	result=$(cat <<EOF
-{
-	"framework": "$framework",
-	"status": "$( [[ $exit_code -eq 0 ]] && echo "built" || echo "build-failed" )",
-	"duration": $duration,
-	"start_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-	"end_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-	"container_id": "$container_name",
-	"exit_code": $exit_code,
-	"cpu_cores_used": $cpu_cores,
-	"output": "$(json_escape "$(cat "$output_file")")",
-	"error": $( [[ $exit_code -eq 0 ]] && echo "null" || echo "\"Build failed with exit code $exit_code\"" )
-}
-EOF
-	)
-
-	# Save result to file
-	echo "$result" > "$build_dir/result.json"
-
-	# Clean up container from tracking
-	BUILD_MANAGER_ACTIVE_CONTAINERS=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$container_name/}")
-
-	echo "$result"
-}
-
-# Execute a build asynchronously (for parallel execution)
-# Arguments:
-#   build_spec_json: JSON build specification
-build_manager_execute_build_async() {
-	local build_spec_json="$1"
-	local framework
-	framework=$(json_get "$build_spec_json" '.framework')
-
-	build_manager_execute_build "$build_spec_json" "$framework" > /dev/null
-}
-
-# ============================================================================
-# Test Image Creation Functions
-# ============================================================================
-
 # Create a Docker test image containing build artifacts, source code, and test suites
 # Arguments:
 #   build_requirements_json: JSON build requirements
@@ -2945,98 +2486,41 @@ build_manager_create_test_image() {
 	local artifacts_dir="$3"
 	local image_name="${4:-}"
 
-	# Generate image name if not provided
-	if [[ -z "$image_name" ]]; then
-	local timestamp
-	timestamp=$(date +%Y%m%d-%H%M%S)
-	image_name="suitey-test-$framework-$timestamp"
-	fi
+	[[ -z "$image_name" ]] && image_name="suitey-test-$framework-$(date +%Y%m%d-%H%M%S)"
 
-	# Check if we're in test mode (mock functions are available)
-	# Integration tests should use real Docker, not mocks
 	if [[ "$(type -t mock_docker_build)" == "function" ]] && [[ -z "${SUITEY_INTEGRATION_TEST:-}" ]]; then
-	# Test mode: mock functions are available, return mock result
-	local mock_result
-	mock_result=$(cat <<EOF
-{
-	"success": true,
-	"image_name": "$image_name",
-	"image_id": "sha256:mock$(date +%s)",
-	"dockerfile_generated": true,
-	"artifacts_included": true,
-	"source_included": true,
-	"tests_included": true,
-	"image_verified": true,
-	"output": "Dockerfile generated successfully. Image built with artifacts, " \
-		"source code, and test suites. Image contents verified."
-}
-EOF
-	)
-	echo "$mock_result"
-	return 0
+		local mock_result="{\"success\":true,\"image_name\":\"$image_name\"," \
+			"\"image_id\":\"sha256:mock$(date +%s)\",\"dockerfile_generated\":true," \
+			"\"artifacts_included\":true,\"source_included\":true,\"tests_included\":true," \
+			"\"image_verified\":true,\"output\":\"Dockerfile generated successfully. " \
+			"Image built with artifacts, source code, and test suites. Image contents verified.\"}"
+		echo "$mock_result"
+		return 0
 	fi
 
 	local build_dir="$BUILD_MANAGER_TEMP_DIR/builds/$framework"
 	mkdir -p "$build_dir"
 
-	# Get build requirements for this framework
 	local framework_req
-	# Find the framework requirement
-	local req_count
-	req_count=$(json_array_length "$build_requirements_json")
-	for ((j=0; j<req_count; j++)); do
-	local temp_framework
-	temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	if [[ "$temp_framework" == "$framework" ]]; then
-	framework_req=$(json_array_get "$build_requirements_json" "$j")
-	break
-	fi
-	done
+	! framework_req=$(_build_manager_find_framework_req "$build_requirements_json" "$framework") && \
+		echo "{\"error\": \"No build requirements found for framework $framework\"}" && return 1
 
-	if [[ -z "$framework_req" ]] || [[ "$framework_req" == "null" ]]; then
-	# documented: Framework has no build requirements defined
-	echo "{\"error\": \"No build requirements found for framework $framework\"}"
-	return 1
-	fi
+	_build_manager_prepare_image_context "$build_dir" "$artifacts_dir"
 
-	# Copy artifacts to build directory
-	local artifacts_dest="$build_dir/artifacts"
-	mkdir -p "$artifacts_dest"
+	local source_code=$(json_get_array "$framework_req" ".artifact_storage.source_code")
+	local test_suites=$(json_get_array "$framework_req" ".artifact_storage.test_suites")
 
-	# Copy artifact files
-	if [[ -d "$artifacts_dir" ]]; then
-	cp -r "$artifacts_dir"/* "$artifacts_dest/" 2>/dev/null || true
-	fi
-
-	# For integration tests, create mock artifacts if none exist
 	if [[ -n "${SUITEY_INTEGRATION_TEST:-}" ]]; then
-	mkdir -p "$artifacts_dest/target/release"
-	echo "mock binary content" > "$artifacts_dest/target/release/suitey_test_app"
-	mkdir -p "$artifacts_dest/target/debug"
-	echo "mock debug binary" > "$artifacts_dest/target/debug/suitey_test_app"
+		mkdir -p "$build_dir/src"
+		echo 'fn main() { println!("Hello World"); }' > "$build_dir/src/main.rs"
+		mkdir -p "$build_dir/tests"
+		echo '#[test] fn test_example() { assert_eq!(1 + 1, 2); }' > "$build_dir/tests/integration_test.rs"
 	fi
 
-	# Copy source code and test files to build directory
-	local source_code
-	source_code=$(json_get_array "$framework_req" ".artifact_storage.source_code")
-	local test_suites
-	test_suites=$(json_get_array "$framework_req" ".artifact_storage.test_suites")
-
-	# For integration tests, create minimal source/test structure if it doesn't exist
-	if [[ -n "${SUITEY_INTEGRATION_TEST:-}" ]]; then
-	mkdir -p "$build_dir/src"
-	echo 'fn main() { println!("Hello World"); }' > "$build_dir/src/main.rs"
-	mkdir -p "$build_dir/tests"
-	echo '#[test] fn test_example() { assert_eq!(1 + 1, 2); }' > "$build_dir/tests/integration_test.rs"
-	fi
-
-	# Generate Dockerfile
 	local dockerfile_path="$build_dir/Dockerfile"
 	build_manager_generate_dockerfile "$framework_req" "$artifacts_dir" "$dockerfile_path"
 
-	# Build Docker image
-	local build_result
-	build_result=$(build_manager_build_test_image "$dockerfile_path" "$build_dir" "$image_name")
+	local build_result=$(build_manager_build_test_image "$dockerfile_path" "$build_dir" "$image_name")
 
 	echo "$build_result"
 }
@@ -3169,130 +2653,6 @@ EOF
 	fi
 }
 
-# ============================================================================
-# Container Management Functions
-# ============================================================================
-
-# Launch a build container with proper configuration
-# Arguments:
-#   build_requirements_json: JSON build requirements
-#   framework: framework identifier
-# Returns: container ID or empty string on failure
-build_manager_launch_container() {
-	local build_requirements_json="$1"
-	local framework="$2"
-
-	# Get build requirements for framework
-	local build_req
-	# Find the build requirement for this framework
-	local req_count
-	req_count=$(json_array_length "$build_requirements_json")
-	for ((j=0; j<req_count; j++)); do
-	local temp_framework
-	temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	if [[ "$temp_framework" == "$framework" ]]; then
-	build_req=$(json_array_get "$build_requirements_json" "$j")
-	break
-	fi
-	done
-
-	if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
-	echo ""
-	return 1
-	fi
-
-	# Generate container name
-	local timestamp
-	timestamp=$(date +%Y%m%d-%H%M%S)
-	local random_suffix
-	random_suffix=$(printf "%04x" $((RANDOM % 65536)))
-	local container_name="suitey-build-$framework-$timestamp-$random_suffix"
-
-	# Get build step configuration
-	local build_step
-	build_step=$(json_get "$build_req" '.build_steps[0]')
-
-	local docker_image
-	docker_image=$(json_get "$build_step" '.docker_image')
-	local cpu_cores
-	cpu_cores=$(json_get "$build_step" '.cpu_cores // empty')
-	local working_dir
-	working_dir=$(json_get "$build_step" '.working_directory // "/workspace"')
-
-	if [[ -z "$cpu_cores" ]] || [[ "$cpu_cores" == "null" ]]; then
-	cpu_cores=$(build_manager_get_cpu_cores)
-	fi
-
-	if [[ -z "$working_dir" ]] || [[ "$working_dir" == "null" ]]; then
-	working_dir="/workspace"
-	fi
-
-	# Launch container with volume mount for PROJECT_ROOT
-	local container_id
-	if [[ -n "${PROJECT_ROOT:-}" ]]; then
-	# Ensure PROJECT_ROOT directory exists (create if needed for bind mount)
-	if [[ ! -d "${PROJECT_ROOT}" ]]; then
-	mkdir -p "${PROJECT_ROOT}" 2>/dev/null || true
-	fi
-	# Mount PROJECT_ROOT to /workspace if it's set
-	container_id=$(docker run -d --name "$container_name" --cpus "$cpu_cores" \
-	-v "$PROJECT_ROOT:/workspace" \
-	-w "$working_dir" "$docker_image" sleep 3600 2>/dev/null)
-	else
-	# Launch without volume mount if PROJECT_ROOT is not set
-	container_id=$(docker run -d --name "$container_name" --cpus "$cpu_cores" \
-	-w "$working_dir" "$docker_image" sleep 3600 2>/dev/null)
-	fi
-
-	if [[ -n "$container_id" ]]; then
-	BUILD_MANAGER_ACTIVE_CONTAINERS+=("$container_name")
-	echo "$container_id"
-	return 0
-	else
-	echo ""
-	return 1
-	fi
-}
-
-# Stop a running container gracefully
-# Arguments:
-#   container_id: Docker container ID or name
-build_manager_stop_container() {
-	local container_id="$1"
-
-	if [[ -n "$container_id" ]]; then
-	docker stop "$container_id" 2>/dev/null || true
-	BUILD_MANAGER_ACTIVE_CONTAINERS=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$container_id/}")
-	fi
-}
-
-# Remove a container and clean up resources
-# Arguments:
-#   container_id: Docker container ID or name
-build_manager_cleanup_container() {
-	local container_id="$1"
-
-	if [[ -n "$container_id" ]]; then
-	docker rm -f "$container_id" 2>/dev/null || true
-	BUILD_MANAGER_ACTIVE_CONTAINERS=("${BUILD_MANAGER_ACTIVE_CONTAINERS[@]/$container_id/}")
-	fi
-}
-
-# Remove a Docker image
-# Arguments:
-#   image_name: Docker image name or ID
-build_manager_cleanup_image() {
-	local image_name="$1"
-
-	if [[ -n "$image_name" ]]; then
-	docker rmi -f "$image_name" 2>/dev/null || true
-	fi
-}
-
-# ============================================================================
-# Status Tracking Functions
-# ============================================================================
-
 # Track build status transitions and provide structured results
 # Arguments:
 #   build_requirements_json: JSON build requirements
@@ -3358,10 +2718,6 @@ build_manager_update_build_status() {
 	fi
 }
 
-# ============================================================================
-# Error Handling Functions
-# ============================================================================
-
 # Handle various build failure scenarios
 # Arguments:
 #   error_type: type of error that occurred
@@ -3411,10 +2767,6 @@ build_manager_handle_error() {
 	echo "$(date): $error_type - $framework - $additional_info" >> "$error_log"
 }
 
-# ============================================================================
-# Signal Handling Functions
-# ============================================================================
-
 # Handle SIGINT signals for graceful/forceful shutdown
 # Arguments:
 #   signal: signal that was received
@@ -3424,58 +2776,28 @@ build_manager_handle_signal() {
 	local signal_count="$2"
 
 	if [[ "$signal_count" == "first" ]] && [[ "$BUILD_MANAGER_SIGNAL_RECEIVED" == "false" ]]; then
-	BUILD_MANAGER_SIGNAL_RECEIVED=true
-	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
-	echo "Gracefully shutting down builds..."
-	else
-	echo "Gracefully shutting down builds..." >&2
-	fi
-
-	# Stop all active containers
-	for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
-	build_manager_stop_container "$container"
-	done
-
-	# Wait a bit for graceful shutdown
-	sleep 2
-
-	# Clean up containers
-	for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
-	build_manager_cleanup_container "$container"
-	done
-
-	# Reset signal flag after handling
-	BUILD_MANAGER_SIGNAL_RECEIVED=false
-
+		BUILD_MANAGER_SIGNAL_RECEIVED=true
+		if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+			echo "Gracefully shutting down builds..."
+		else
+			echo "Gracefully shutting down builds..." >&2
+		fi
+		_build_manager_cleanup_on_signal false
+		sleep 2
+		BUILD_MANAGER_SIGNAL_RECEIVED=false
 	elif [[ "$signal_count" == "second" ]] || [[ "$BUILD_MANAGER_SECOND_SIGNAL" == "true" ]]; then
-	BUILD_MANAGER_SECOND_SIGNAL=true
-	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
-	echo "Forcefully terminating builds..."
-	else
-	echo "Forcefully terminating builds..." >&2
-	fi
-
-	# Force kill all containers
-	for container in "${BUILD_MANAGER_ACTIVE_CONTAINERS[@]}"; do
-	docker kill "$container" 2>/dev/null || true
-	build_manager_cleanup_container "$container"
-	done
-
-	# Clean up temporary resources
-	if [[ -n "$BUILD_MANAGER_TEMP_DIR" ]] && [[ -d "$BUILD_MANAGER_TEMP_DIR" ]]; then
-	rm -rf "$BUILD_MANAGER_TEMP_DIR"
-	fi
-
-	# Only exit in production mode
-	if [[ -z "${SUITEY_TEST_MODE:-}" ]]; then
-	exit 1
-	fi
+		BUILD_MANAGER_SECOND_SIGNAL=true
+		if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
+			echo "Forcefully terminating builds..."
+		else
+			echo "Forcefully terminating builds..." >&2
+		fi
+		_build_manager_cleanup_on_signal true
+		if [[ -z "${SUITEY_TEST_MODE:-}" ]]; then
+			exit 1
+		fi
 	fi
 }
-
-# ============================================================================
-# Validation Functions
-# ============================================================================
 
 # Validate build requirements JSON structure
 # Arguments:
@@ -3524,303 +2846,12 @@ build_manager_validate_requirements() {
 }
 
 # ============================================================================
-# Test/Integration Functions
-# ============================================================================
-
-# Start a build process (for testing signal handling)
-# Arguments:
-#   build_requirements_json: JSON build requirements
-build_manager_start_build() {
-	local build_requirements_json="$1"
-	build_manager_orchestrate "$build_requirements_json"
-}
-
-# ============================================================================
-# Integration Functions
-# ============================================================================
-
-# Process build steps from framework adapters
-# Arguments:
-#   build_requirements_json: JSON build requirements
-#   framework: framework identifier
-# Returns: processed build steps
-build_manager_process_adapter_build_steps() {
-	local build_requirements_json="$1"
-	local framework="$2"
-
-	# Get build requirements for framework
-	local build_req
-	# Find the build requirement for this framework
-	local req_count
-	req_count=$(json_array_length "$build_requirements_json")
-	for ((j=0; j<req_count; j++)); do
-	local temp_framework
-	temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	if [[ "$temp_framework" == "$framework" ]]; then
-	build_req=$(json_array_get "$build_requirements_json" "$j")
-	break
-	fi
-	done
-
-	if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
-	echo "{}"
-	return 1
-	fi
-
-	# Return build steps
-	json_get "$build_req" '.build_steps'
-}
-
-# Coordinate with Project Scanner
-# Arguments:
-#   build_requirements_json: JSON build requirements
-# Returns: coordination result
-build_manager_coordinate_with_project_scanner() {
-	local build_requirements_json="$1"
-
-	# This function coordinates with Project Scanner
-	# For now, just validate and acknowledge
-	if build_manager_validate_requirements "$build_requirements_json"; then
-	echo '{"status": "coordinated", "ready": true}'
-	else
-	echo '{"status": "error", "ready": false}'  # documented: Build manager readiness check failed
-	fi
-}
-
-# Provide build results to Project Scanner
-# Arguments:
-#   build_results_json: JSON build results
-# Returns: acknowledgment
-build_manager_provide_results_to_scanner() {
-	local build_results_json="$1"
-
-	# Validate results structure
-	if json_validate "$build_results_json"; then
-	echo '{"status": "results_received", "processed": true}'
-	else
-	echo '{"status": "error", "processed": false}'  # documented: Build processing failed
-	fi
-}
-
-# Execute builds using adapter specifications
-# Arguments:
-#   build_requirements_json: JSON build requirements
-#   framework: framework identifier
-# Returns: execution result
-build_manager_execute_with_adapter_specs() {
-	local build_requirements_json="$1"
-	local framework="$2"
-
-	# Execute build using adapter specifications
-	# Find the build requirement for this framework
-	local build_req=""
-	local req_count
-	req_count=$(json_array_length "$build_requirements_json")
-	for ((j=0; j<req_count; j++)); do
-	local temp_framework
-	temp_framework=$(json_get "$build_requirements_json" ".[$j].framework")
-	if [[ "$temp_framework" == "$framework" ]]; then
-	build_req=$(json_array_get "$build_requirements_json" "$j")
-	break
-	fi
-	done
-	build_manager_execute_build "$build_req" "$framework"
-}
-
-# Pass test image metadata to adapters
-# Arguments:
-#   test_image_metadata_json: JSON test image metadata
-#   framework: framework identifier
-# Returns: acknowledgment
-build_manager_pass_image_metadata_to_adapter() {
-	local test_image_metadata_json="$1"
-	local framework="$2"
-
-	# Validate metadata
-	if json_validate "$test_image_metadata_json"; then
-	echo '{"status": "metadata_passed", "framework": "'$framework'", "received": true}'
-	else
-	# documented: Framework build status update failed
-	echo '{"status": "error", "framework": "'$framework'", "received": false}'
-	fi
-}
-
-
-# Execute multi-framework builds
-# Arguments:
-#   build_requirements_json: JSON build requirements
-# Returns: execution results for all frameworks
-build_manager_execute_multi_framework() {
-	local build_requirements_json="$1"
-
-	# Count frameworks in requirements
-	local framework_count
-	framework_count=$(json_array_length "$build_requirements_json")
-
-	# Return appropriate output for parallel execution test
-	echo "Executing $framework_count frameworks in parallel. Independent builds completed without interference."
-}
-
-# Execute dependent builds
-# Arguments:
-#   build_requirements_json: JSON build requirements
-# Returns: execution results with dependency ordering
-build_manager_execute_dependent_builds() {
-	local build_requirements_json="$1"
-
-	# For integration testing, delegate to orchestrate
-	build_manager_orchestrate "$build_requirements_json"
-}
-
-# Build containerized Rust project (integration test version)
-# Arguments:
-#   project_dir: project directory
-#   image_name: Docker image name to create
-# Returns: build result
-build_manager_build_containerized_rust_project() {
-	local project_dir="$1"
-	local image_name="$2"
-
-	# For integration tests, simulate build success/failure
-	if [[ -n "${SUITEY_INTEGRATION_TEST:-}" ]]; then
-	# Check if this is a broken project (has nonexistent_package dependency)
-	if grep -q "nonexistent_package" "$project_dir/Cargo.toml" 2>/dev/null; then
-	echo "BUILD_FAILED: Build failed with Docker errors: error: no matching package named 'nonexistent_package' found"
-	return 0
-	fi
-
-	# Check if main.rs has undefined_function (broken code)
-	if grep -q "undefined_function" "$project_dir/src/main.rs" 2>/dev/null; then
-	echo "BUILD_FAILED: Build failed with Docker errors: " \
-		"error[E0425]: cannot find function 'undefined_function' in this scope"
-	return 0
-	fi
-
-	# Success case
-	mkdir -p "$project_dir/target/debug"
-	echo "dummy binary content" > "$project_dir/target/debug/suitey_test_project"
-	chmod +x "$project_dir/target/debug/suitey_test_project"
-	return 0
-	fi
-
-	# For non-integration tests, do the actual Docker build
-	local dockerfile="$project_dir/Dockerfile"
-	cat > "$dockerfile" << 'EOF'
-FROM rust:1.70-slim
-WORKDIR /app
-COPY . .
-RUN cargo build --release
-EOF
-
-	local build_output
-	local exit_code
-	# Use --rm to remove intermediate containers (default but explicit)
-	# Use --force-rm to ensure cleanup even on failure
-	build_output=$(timeout 120 docker build --rm --force-rm -t "$image_name" "$project_dir" 2>&1)
-	exit_code=$?
-
-	if [[ $exit_code -eq 0 ]]; then
-	echo "build_success"
-	elif [[ $exit_code -eq 124 ]]; then
-	echo "build_timeout"
-	# Clean up on timeout
-	build_manager_cleanup_image "$image_name" 2>/dev/null || true
-	# Clean up any intermediate containers that might remain
-	docker ps -a --filter "ancestor=$image_name" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
-	else
-	echo "build_failed"
-	# Clean up on failure - remove any partial image
-	build_manager_cleanup_image "$image_name" 2>/dev/null || true
-	# Clean up any intermediate containers created during the failed build
-	# These might be left behind if BuildKit is disabled or on legacy builder
-	docker ps -a --filter "ancestor=$image_name" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
-	# Also clean up any exited containers that might be from the build process
-	docker ps -aq --filter "status=exited" --filter "label=build" | xargs -r docker rm -f 2>/dev/null || true
-	fi
-	return 0
-}
-
-# Create test image from artifacts
-# Arguments:
-#   project_dir: project directory
-#   base_image: base Docker image
-#   target_image: target image name
-# Returns: image creation result
-build_manager_create_test_image_from_artifacts() {
-	local project_dir="$1"
-	local base_image="$2"
-	local target_image="$3"
-
-	# Create artifacts directory
-	local artifacts_dir="$project_dir/target"
-	mkdir -p "$artifacts_dir"
-
-	# Create a simple test image
-	local dockerfile="$project_dir/TestDockerfile"
-	cat > "$dockerfile" << EOF
-FROM $base_image
-COPY target/ /workspace/artifacts/
-COPY src/ /workspace/src/
-COPY tests/ /workspace/tests/
-WORKDIR /workspace
-RUN echo "Test image created"
-EOF
-
-	# Build the test image
-	if docker build -f "$dockerfile" -t "$target_image" "$project_dir" >/dev/null 2>&1; then
-	echo '{"success": true, "image_name": "'"$target_image"'"}'
-	else
-	echo '{"success": false, "error": "Test image creation failed"}'  # documented: Docker test image build failed
-	return 1
-	fi
-}
-
-# Build multi-framework real builds
-# Arguments:
-#   build_requirements_json: JSON build requirements
-# Returns: results for all frameworks
-build_manager_build_multi_framework_real() {
-	local build_requirements_json="$1"
-
-	# Count frameworks in requirements
-	local framework_count
-	framework_count=$(json_array_length "$build_requirements_json")
-
-	# Return output that matches test expectations
-	echo "Building $framework_count frameworks simultaneously with real Docker operations. " \
-		"Parallel concurrent execution completed successfully. " \
-		"independent builds executed without interference."
-}
-
-# Build dependent builds (real version)
-# Arguments:
-#   build_requirements_json: JSON build requirements
-# Returns: dependent build results
-build_manager_build_dependent_real() {
-	local build_requirements_json="$1"
-
-	# Analyze dependencies for sequential execution
-	echo "Analyzing build dependencies and executing in sequential order. Dependent builds completed successfully."
-}
-
-# ============================================================================
 # Source: src/main.sh
 # ============================================================================
 # ============================================================================
 # Help Text
 # ============================================================================
 #
-# Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# Editor hints: Max line length: 120 characters
-# Editor hints: Max function size: 50 lines
-# Editor hints: Max functions per file: 20
-# Editor hints: Max file length: 1000 lines
-# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
-# Local Variables:
-# tab-width: 4
-# indent-tabs-mode: t
-# fill-column: 120
-# End:
 
 # Source JSON helper functions
 if [[ -f "json_helpers.sh" ]]; then
@@ -3851,96 +2882,93 @@ EOF
 # Main Entry Point
 # ============================================================================
 
-main() {
-	# Check for subcommands
+# Helper: Parse arguments
+_main_parse_arguments() {
+	local project_root_arg=""
+	for arg in "$@"; do
+		case "$arg" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+		-*)
+			echo "Error: Unknown option: $arg" >&2
+			echo "Run 'suitey.sh --help' for usage information." >&2
+			exit 2
+			;;
+		*)
+			if [[ -z "$project_root_arg" ]]; then
+				project_root_arg="$arg"
+			else
+				echo "Error: Multiple project root arguments specified." >&2
+				echo "Run 'suitey.sh --help' for usage information." >&2
+				exit 2
+			fi
+			;;
+		esac
+	done
+	echo "${project_root_arg:-.}"
+}
 
-	# Check for test suite discovery subcommand
-	if [[ $# -gt 0 ]] && [[ "$1" == "test-suite-discovery-registry" ]]; then
+# Helper: Handle subcommand
+_main_handle_subcommand() {
+	local subcommand="$1"
 	shift
-	# Process PROJECT_ROOT argument
+	if [[ "$subcommand" == "test-suite-discovery-registry" ]]; then
+		local project_root_arg
+		project_root_arg=$(_main_parse_arguments "$@")
+		test_suite_discovery_with_registry "$project_root_arg"
+		exit 0
+	fi
+}
+
+# Helper: Handle help flags
+_main_handle_help() {
+	for arg in "$@"; do
+		case "$arg" in
+		-h|--help)
+			show_help
+			exit 0
+			;;
+		esac
+	done
+}
+
+main() {
+	if [[ $# -gt 0 ]] && [[ "$1" != -* ]]; then
+		_main_handle_subcommand "$@"
+	fi
+
+	_main_handle_help "$@"
+
 	local project_root_arg=""
 	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	show_help
-	exit 0
-	;;
-	-*)
-	# Unknown option
-	# documented: Invalid command-line option provided
-	echo "Error: Unknown option: $arg" >&2
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	;;
-	*)
-	# First non-flag argument is PROJECT_ROOT
-	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="$arg"
-	else
-	# documented: Only one project root directory allowed
-	echo "Error: Multiple project root arguments specified." >&2
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	fi
-	;;
-	esac
+		case "$arg" in
+		-h|--help)
+			;;
+		-*)
+			echo "Error: Unknown option: $arg" >&2
+			echo "Run 'suitey.sh --help' for usage information." >&2
+			exit 2
+			;;
+		*)
+			if [[ -z "$project_root_arg" ]]; then
+				project_root_arg="$arg"
+			else
+				echo "Error: Multiple project root arguments specified." >&2
+				echo "Run 'suitey.sh --help' for usage information." >&2
+				exit 2
+			fi
+			;;
+		esac
 	done
 
-	# If no PROJECT_ROOT argument provided, use current directory
 	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="."
+		show_help
+		exit 0
 	fi
 
-	# Call test suite discovery function
-	test_suite_discovery_with_registry "$project_root_arg"
-	exit 0
-	fi
-
-	# Check for help flags
-	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	show_help
-	exit 0
-	;;
-	esac
-	done
-
-	# Process PROJECT_ROOT argument (first non-flag argument)
-	local project_root_arg=""
-	for arg in "$@"; do
-	case "$arg" in
-	-h|--help)
-	# Already handled above
-	;;
-	-*)
-	# Unknown option
-	echo "Error: Unknown option: $arg" >&2  # documented: Invalid command-line option provided
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	;;
-	*)
-	# First non-flag argument is PROJECT_ROOT
-	if [[ -z "$project_root_arg" ]]; then
-	project_root_arg="$arg"
-	else
-	echo "Error: Multiple project root arguments specified." >&2  # documented: Only one project root directory allowed
-	echo "Run 'suitey.sh --help' for usage information." >&2
-	exit 2
-	fi
-	;;
-	esac
-	done
-
-	# If no PROJECT_ROOT argument provided, show help
-	if [[ -z "$project_root_arg" ]]; then
-	show_help
-	exit 0
-	fi
-
-	# Set PROJECT_ROOT
 	PROJECT_ROOT="$(cd "$project_root_arg" && pwd)"
-
 	scan_project
 	output_results
 }
