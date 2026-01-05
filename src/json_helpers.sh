@@ -252,9 +252,13 @@ json_to_array() {
 		return 1
 	fi
 
-	# Count elements
+	# Count elements (handle empty case - jq returns nothing, echo adds newline)
 	local count
-	count=$(echo "$elements" | wc -l | tr -d ' ')
+	if [[ -z "$elements" ]]; then
+		count=0
+	else
+		count=$(echo "$elements" | wc -l | tr -d ' ')
+	fi
 
 	# Output count first, then elements
 	echo "$count"
@@ -438,15 +442,19 @@ json_populate_array_from_output() {
 
 	# Populate array from remaining lines (only if count > 0)
 	if [[ "$count" -gt 0 ]]; then
-		# Use nameref to modify the caller's array
-		local -n arr="$array_name"
-		# Clear the array first
-		arr=()
-		# Populate from remaining lines
+		# Unset any local declaration first, then declare as global
+		# This allows us to modify arrays even if caller declared them locally
+		eval "unset ${array_name} 2>/dev/null || true"
+		eval "declare -g -a ${array_name}"
+		# Populate using eval (to avoid BATS scoping issues with nameref)
+		# Use printf %q for safe quoting (matches pattern from shell.bats tests)
 		local idx=0
 		while IFS= read -r element || [[ -n "$element" ]]; do
 			[[ -z "$element" ]] && continue
-			arr[$idx]="$element"
+			local safe_element
+			safe_element=$(printf '%q' "$element")
+			# For indexed arrays, use numeric index (no quotes needed) and safe_element
+			eval "${array_name}[$idx]=$safe_element"
 			((idx++))
 		done < <(echo "$output" | tail -n +2)
 	fi

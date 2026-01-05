@@ -37,8 +37,20 @@ setup() {
 	local json='["item1","item2","item3"]'
 	declare -a test_array
 	
-	json_to_array "$json" "test_array"
+	local output
+	output=$(json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output (Option 1 from return-data pattern)
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 3 ]
 	[ ${#test_array[@]} -eq 3 ]
 	[ "${test_array[0]}" = "item1" ]
 	[ "${test_array[1]}" = "item2" ]
@@ -49,8 +61,20 @@ setup() {
 	local json='[]'
 	declare -a test_array
 	
-	json_to_array "$json" "test_array"
+	local output
+	output=$(json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 0 ]
 	[ ${#test_array[@]} -eq 0 ]
 }
 
@@ -58,8 +82,20 @@ setup() {
 	local json='[1,2,3]'
 	declare -a test_array
 	
-	json_to_array "$json" "test_array"
+	local output
+	output=$(json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 3 ]
 	[ ${#test_array[@]} -eq 3 ]
 	[ "${test_array[0]}" = "1" ]
 	[ "${test_array[1]}" = "2" ]
@@ -70,8 +106,20 @@ setup() {
 	local json='["new1","new2"]'
 	declare -a test_array=("old1" "old2" "old3")
 	
-	json_to_array "$json" "test_array"
+	local output
+	output=$(json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output (clearing first)
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 2 ]
 	[ ${#test_array[@]} -eq 2 ]
 	[ "${test_array[0]}" = "new1" ]
 	[ "${test_array[1]}" = "new2" ]
@@ -81,16 +129,16 @@ setup() {
 	local json='invalid json'
 	declare -a test_array
 	
-	run json_to_array "$json" "test_array"
+	run json_to_array "$json"
 	
 	[ $status -ne 0 ]
 }
 
-@test "json_to_array returns error on empty var_name" {
-	local json='["item1"]'
+@test "json_to_array returns error on empty JSON" {
+	local json=''
 	declare -a test_array
 	
-	run json_to_array "$json" ""
+	run json_to_array "$json"
 	
 	[ $status -ne 0 ]
 }
@@ -103,8 +151,20 @@ setup() {
 	local json='[{"framework":"test1"},{"framework":"test2"}]'
 	declare -a test_array
 	
-	build_requirements_json_to_array "$json" "test_array"
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 2 ]
 	[ ${#test_array[@]} -eq 2 ]
 	[[ "${test_array[0]}" == *"test1"* ]]
 	[[ "${test_array[1]}" == *"test2"* ]]
@@ -114,8 +174,20 @@ setup() {
 	local json='[]'
 	declare -a test_array
 	
-	build_requirements_json_to_array "$json" "test_array"
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 0 ]
 	[ ${#test_array[@]} -eq 0 ]
 }
 
@@ -123,8 +195,20 @@ setup() {
 	local json='[{"framework":"new1"}]'
 	declare -a test_array=("old1" "old2")
 	
-	build_requirements_json_to_array "$json" "test_array"
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	# Manually populate array from output (clearing first)
+	test_array=()
+	local idx=0
+	while IFS= read -r element || [[ -n "$element" ]]; do
+		[[ -z "$element" ]] && continue
+		test_array[$idx]="$element"
+		idx=$((idx + 1))
+	done < <(echo "$output" | tail -n +2)
 	
+	[ "$count" -eq 1 ]
 	[ ${#test_array[@]} -eq 1 ]
 	[[ "${test_array[0]}" == *"new1"* ]]
 }
@@ -133,7 +217,7 @@ setup() {
 	local json='invalid'
 	declare -a test_array
 	
-	run build_requirements_json_to_array "$json" "test_array"
+	run build_requirements_json_to_array "$json"
 	
 	[ $status -ne 0 ]
 }
@@ -142,7 +226,7 @@ setup() {
 	local json='{"not":"array"}'
 	declare -a test_array
 	
-	run build_requirements_json_to_array "$json" "test_array"
+	run build_requirements_json_to_array "$json"
 	
 	[ $status -ne 0 ]
 }
@@ -155,7 +239,8 @@ setup() {
 	output=$(build_requirements_json_to_array "$json")
 	local count
 	count=$(echo "$output" | head -n 1)
-	# Populate array from remaining lines
+	# Manually populate array from output
+	test_array=()
 	local idx=0
 	while IFS= read -r element || [[ -n "$element" ]]; do
 		[[ -z "$element" ]] && continue
@@ -164,6 +249,7 @@ setup() {
 	done < <(echo "$output" | tail -n +2)
 
 	# Should have 2 items, not 3 (null is skipped)
+	[ "$count" -eq 2 ]
 	[ ${#test_array[@]} -eq 2 ]
 }
 
