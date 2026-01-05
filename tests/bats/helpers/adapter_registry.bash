@@ -1600,7 +1600,11 @@ assert_concurrent_access_handled() {
 assert_build_steps_has_install_dependencies() {
   local build_steps_json="$1"
 
-  if ! json_test_has_field "$build_steps_json" "install_dependencies_command"; then
+  # build_steps_json is an array, so check if any object in the array has the field
+  local has_field
+  has_field=$(echo "$build_steps_json" | jq -e 'any(.[]; has("install_dependencies_command"))' 2>/dev/null)
+  
+  if [[ "$has_field" != "true" ]]; then
     echo "ERROR: Expected install_dependencies_command field in build steps"
     echo "Build steps: $build_steps_json"
     return 1
@@ -1613,7 +1617,11 @@ assert_build_steps_has_install_dependencies() {
 assert_build_steps_has_cpu_cores() {
   local build_steps_json="$1"
 
-  if ! json_test_has_field "$build_steps_json" "cpu_cores"; then
+  # build_steps_json is an array, so check if any object in the array has the field
+  local has_field
+  has_field=$(echo "$build_steps_json" | jq -e 'any(.[]; has("cpu_cores"))' 2>/dev/null)
+  
+  if [[ "$has_field" != "true" ]]; then
     echo "ERROR: Expected cpu_cores field in build steps"
     echo "Build steps: $build_steps_json"
     return 1
@@ -1696,7 +1704,11 @@ assert_build_steps_valid_json() {
   local required_fields=("step_name" "docker_image" "install_dependencies_command" "build_command" "working_directory" "volume_mounts" "environment_variables" "cpu_cores")
 
   for field in "${required_fields[@]}"; do
-    if ! json_test_has_field "$build_steps_json" "$field"; then
+    # build_steps_json is an array, so check if any object in the array has the field
+    local has_field
+    has_field=$(echo "$build_steps_json" | jq -e "any(.[]; has(\"$field\"))" 2>/dev/null)
+    
+    if [[ "$has_field" != "true" ]]; then
       echo "ERROR: Missing required field '$field' in build steps JSON"
       echo "Build steps: $build_steps_json"
       return 1

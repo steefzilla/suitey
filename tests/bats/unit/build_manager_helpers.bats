@@ -63,7 +63,7 @@ load ../helpers/build_manager
 
 	# Execute tier loop
 	local result
-	result=$(_build_manager_execute_tier_loop "2" dependency_analysis "${build_reqs[@]}" "$build_results")
+	result=$(_build_manager_execute_tier_loop "2" dependency_analysis build_reqs "$build_results")
 
 	# Should succeed and return results
 	[ -n "$result" ]
@@ -77,6 +77,7 @@ load ../helpers/build_manager
 	# Mock build_manager_execute_parallel to return failed build
 	build_manager_execute_parallel() {
 		echo '[{"framework": "test", "status": "build-failed", "exit_code": 1}]'
+		return 0
 	}
 
 	# Set up test data
@@ -86,13 +87,82 @@ load ../helpers/build_manager
 	local build_reqs=('{"framework": "framework1"}')
 	local build_results="[]"
 
-	# Execute tier loop - should fail
-	local result
-	result=$(_build_manager_execute_tier_loop "1" dependency_analysis "${build_reqs[@]}" "$build_results")
+	# Use run to capture both output and status (function returns 1 on failure)
+	run _build_manager_execute_tier_loop "1" dependency_analysis build_reqs "$build_results"
 
-	# Should indicate failure
-	[ "$result" = "false" ]
+	# Should output "false" and return 1
+	[ "$output" = "false" ]
+	[ "$status" -eq 1 ]
 
 	# Clean up mock
+	unset -f build_manager_execute_parallel
+}
+
+# ============================================================================
+# Failure Detection Tests
+# ============================================================================
+
+@test "_build_manager_check_tier_failures detects build failures" {
+	local test_results='[{"framework": "test", "status": "build-failed", "exit_code": 1}]'
+	
+	_build_manager_check_tier_failures "$test_results"
+	[ $? -eq 0 ]  # Should return 0 (has failures)
+}
+
+@test "_build_manager_check_tier_failures returns no failures for successful builds" {
+	local test_results='[{"framework": "test", "status": "built", "exit_code": 0}]'
+	
+	run _build_manager_check_tier_failures "$test_results"
+	[ "$status" -eq 1 ]  # Should return 1 (no failures)
+}
+
+@test "_build_manager_check_tier_failures handles empty input" {
+	run _build_manager_check_tier_failures ""
+	[ "$status" -eq 1 ]  # Should return 1 (no failures for empty input)
+}
+
+# ============================================================================
+# Tier Loop Edge Case Tests
+# ============================================================================
+
+@test "_build_manager_execute_tier_loop handles empty tier_results gracefully" {
+	build_manager_execute_parallel() {
+		echo ""  # Return empty
+		return 0
+	}
+
+	local -A dependency_analysis
+	dependency_analysis["tier_0_json"]='["framework1"]'
+	local build_reqs=('{"framework": "framework1"}')
+	local build_results="[]"
+
+	local result
+	result=$(_build_manager_execute_tier_loop "1" dependency_analysis build_reqs "$build_results")
+	
+	# Should return build_results (not "false") when tier_results is empty
+	[ -n "$result" ]
+	[ "$result" != "false" ]
+
+	unset -f build_manager_execute_parallel
+}
+
+@test "_build_manager_execute_tier_loop returns false on build failure" {
+	build_manager_execute_parallel() {
+		echo '[{"framework": "test", "status": "build-failed", "exit_code": 1}]'
+		return 0
+	}
+
+	local -A dependency_analysis
+	dependency_analysis["tier_0_json"]='["framework1"]'
+	local build_reqs=('{"framework": "framework1"}')
+	local build_results="[]"
+
+	# Use run to capture both output and status
+	run _build_manager_execute_tier_loop "1" dependency_analysis build_reqs "$build_results"
+	
+	# Should output "false" and return 1
+	[ "$output" = "false" ]
+	[ "$status" -eq 1 ]
+
 	unset -f build_manager_execute_parallel
 }

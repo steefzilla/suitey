@@ -89,7 +89,7 @@ count_rust_tests() {
 	local object_count=0
 	while IFS= read -r line; do
 		if [[ "$line" == *"name"* ]]; then
-			((object_count++))
+			((++object_count))  # Use pre-increment to avoid 0 evaluation issue with set -e
 		fi
 	done <<< "$result"
 
@@ -119,7 +119,7 @@ count_rust_tests() {
 	local files_found=0
 	while IFS= read -r line; do
 		if [[ "$line" == "test1.bats" ]] || [[ "$line" == "test2.bats" ]]; then
-			((files_found++))
+			((++files_found))  # Use pre-increment to avoid 0 evaluation issue with set -e
 		fi
 	done < <(echo "$result" | tail -n +2)
 
@@ -218,4 +218,81 @@ count_rust_tests() {
 
 	# Clean up mocks
 	unset -f rust_adapter_get_metadata rust_adapter_check_binaries
+}
+
+@test "parse_test_suites_json handles JSON captured via command substitution" {
+	# Test that JSON captured via command substitution (as in scanner.sh) works correctly
+	# This simulates: suites_json=$("${framework}_adapter_discover_test_suites" ...)
+	
+	mock_adapter_output() {
+		echo '[{"name":"suitey","framework":"bats","test_files":["tests/bats/suitey.bats"],"metadata":{},"execution_config":{}}]'
+	}
+	
+	# Capture output via command substitution (as scanner.sh does)
+	local suites_json
+	suites_json=$(mock_adapter_output)
+	
+	# Verify it's captured correctly
+	[ -n "$suites_json" ]
+	
+	# Test parsing
+	local project_root="/test/project"
+	local result
+	result=$(parse_test_suites_json "$suites_json" "bats" "$project_root")
+	
+	[ -n "$result" ]
+	local suite_entry=$(echo "$result" | head -1)
+	IFS='|' read -r framework suite_name file_path rel_path test_count <<< "$suite_entry"
+	
+	[ "$framework" = "bats" ]
+	[ "$suite_name" = "suitey" ]
+	
+	unset -f mock_adapter_output
+}
+
+@test "_parse_split_json_array handles JSON with trailing newlines or whitespace" {
+	# Test edge case: JSON might have trailing newlines from command substitution
+	local json_with_newline='[{"name":"test","test_files":["test.bats"]}]'$'\n'
+	
+	local result
+	result=$(_parse_split_json_array "$json_with_newline")
+	
+	[ -n "$result" ]
+	# Each line should be valid JSON
+	while IFS= read -r line; do
+		if [[ -n "$line" ]]; then
+			echo "$line" | jq . >/dev/null 2>&1
+		fi
+	done <<< "$result"
+}
+
+@test "_parse_extract_suite_data handles JSON objects from _parse_split_json_array output" {
+	# Test the actual output format from _parse_split_json_array
+	local json_array='[{"name":"suitey","framework":"bats","test_files":["tests/bats/suitey.bats"],"metadata":{},"execution_config":{}}]'
+	
+	# Split it as the real code does
+	local split_output
+	split_output=$(_parse_split_json_array "$json_array")
+	
+	# Test each split object
+	local count=0
+	while IFS= read -r suite_obj; do
+		if [[ -n "$suite_obj" ]]; then
+			((++count))
+			
+			# Verify it's valid JSON
+			echo "$suite_obj" | jq . >/dev/null 2>&1
+			
+			# Test extraction
+			run _parse_extract_suite_data "$suite_obj" "bats"
+			
+			[ "$status" -eq 0 ]
+			[ -n "$output" ]
+			
+			local suite_name=$(echo "$output" | head -1)
+			[ "$suite_name" = "suitey" ]
+		fi
+	done <<< "$split_output"
+	
+	[ "$count" -eq 1 ]
 }

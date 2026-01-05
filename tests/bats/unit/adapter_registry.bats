@@ -417,7 +417,7 @@ special_adapter_adapter_detect() {
 
 special_adapter_adapter_get_metadata() {
   # JSON with special characters: quotes, newlines, equals signs, etc.
-  echo '{"name": "Test \"Adapter\"", "description": "Has = signs and\nnewlines", "version": "1.0.0", "supported_languages": ["test"], "capabilities": ["test"], "required_binaries": [], "configuration_files": [], "test_file_patterns": ["test_*"], "test_directory_patterns": ["tests/"]}'
+  echo '{"name": "Test \"Adapter\"", "identifier": "special_adapter", "description": "Has = signs and\nnewlines", "version": "1.0.0", "supported_languages": ["test"], "capabilities": ["test"], "required_binaries": [], "configuration_files": [], "test_file_patterns": ["test_*"], "test_directory_patterns": ["tests/"]}'
 }
 
 special_adapter_adapter_check_binaries() {

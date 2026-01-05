@@ -137,6 +137,11 @@ setup_build_manager_test() {
     export SUITEY_TEST_MODE
   fi
 
+  # Reset signal handling state for each test
+  BUILD_MANAGER_SIGNAL_RECEIVED=false
+  BUILD_MANAGER_SECOND_SIGNAL=false
+  export BUILD_MANAGER_SIGNAL_RECEIVED BUILD_MANAGER_SECOND_SIGNAL
+
   # Initialize mock manager for this test
   mock_manager_init "$test_name"
 

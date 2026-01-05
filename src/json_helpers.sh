@@ -35,6 +35,14 @@ json_get() {
 	return 1
 	fi
 
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
+
 	echo "$json" | jq -r "$path" 2>/dev/null || return 1
 }
 
@@ -51,6 +59,14 @@ json_get_array() {
 	if [[ -z "$json" ]] || [[ -z "$path" ]]; then
 	return 1
 	fi
+
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
 
 	echo "$json" | jq -r "$path[]?" 2>/dev/null || return 1
 }
@@ -101,6 +117,14 @@ json_has_field() {
 	if [[ -z "$json" ]] || [[ -z "$field" ]]; then
 	return 1
 	fi
+
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
 
 	echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
 }
@@ -396,7 +420,7 @@ build_requirements_json_to_array() {
 		local req_json
 		req_json=$(json_array_get "$json" "$i")
 		if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
-			((count++))
+			((++count))  # Use pre-increment to avoid 0 evaluation issue with set -e
 		fi
 	done
 
@@ -449,13 +473,13 @@ json_populate_array_from_output() {
 		# Populate using eval (to avoid BATS scoping issues with nameref)
 		# Use printf %q for safe quoting (matches pattern from shell.bats tests)
 		local idx=0
-		while IFS= read -r element || [[ -n "$element" ]]; do
+		while IFS= read -r element; do
 			[[ -z "$element" ]] && continue
 			local safe_element
 			safe_element=$(printf '%q' "$element")
 			# For indexed arrays, use numeric index (no quotes needed) and safe_element
 			eval "${array_name}[$idx]=$safe_element"
-			((idx++))
+			((++idx))  # Use pre-increment to avoid 0 evaluation issue with set -e
 		done < <(echo "$output" | tail -n +2)
 	fi
 

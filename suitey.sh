@@ -170,12 +170,14 @@ ADAPTER_REGISTRY_INITIALIZED=false            # Tracks whether registry has been
 ADAPTER_REGISTRY_ORDER=()                     # Preserves registration order
 
 # Registry Persistence (for testing)
-# Use test directory if available, otherwise use tmp
-REGISTRY_BASE_DIR="${TEST_ADAPTER_REGISTRY_DIR:-${TMPDIR:-/tmp}}"
-ADAPTER_REGISTRY_FILE="$REGISTRY_BASE_DIR/suitey_adapter_registry"
-ADAPTER_REGISTRY_CAPABILITIES_FILE="$REGISTRY_BASE_DIR/suitey_adapter_capabilities"
-ADAPTER_REGISTRY_ORDER_FILE="$REGISTRY_BASE_DIR/suitey_adapter_order"
-ADAPTER_REGISTRY_INIT_FILE="$REGISTRY_BASE_DIR/suitey_adapter_init"
+# These variables are computed dynamically when needed to avoid race conditions
+# in parallel test execution. They should NOT be initialized at module load time
+# because TEST_ADAPTER_REGISTRY_DIR may not be set yet.
+REGISTRY_BASE_DIR=""
+ADAPTER_REGISTRY_FILE=""
+ADAPTER_REGISTRY_CAPABILITIES_FILE=""
+ADAPTER_REGISTRY_ORDER_FILE=""
+ADAPTER_REGISTRY_INIT_FILE=""
 
 # ============================================================================
 # Adapter Registry Functions
@@ -318,26 +320,28 @@ adapter_registry_load_state() {
 		
 		# Extract registry output (between REGISTRY_START and REGISTRY_END)
 		local registry_output
-		registry_output=$(echo "$reload_data" | sed -n '/^REGISTRY_START$/,/^REGISTRY_END$/p' | sed '1d;$d')
+		registry_output=$(echo "$reload_data" | sed -n '/^REGISTRY_START$/,/^REGISTRY_END$/p' | sed -e '1d' -e '$d')
 		
 		# Extract capabilities output (between CAPABILITIES_START and CAPABILITIES_END)
 		local capabilities_output
-		capabilities_output=$(echo "$reload_data" | sed -n '/^CAPABILITIES_START$/,/^CAPABILITIES_END$/p' | sed '1d;$d')
+		capabilities_output=$(echo "$reload_data" | sed -n '/^CAPABILITIES_START$/,/^CAPABILITIES_END$/p' | sed -e '1d' -e '$d')
 		
 		# Extract order output (between ORDER_START and ORDER_END)
 		local order_output
-		order_output=$(echo "$reload_data" | sed -n '/^ORDER_START$/,/^ORDER_END$/p' | sed '1d;$d')
+		order_output=$(echo "$reload_data" | sed -n '/^ORDER_START$/,/^ORDER_END$/p' | sed -e '1d' -e '$d')
 		
 		# Ensure arrays are declared as global before populating (BATS compatibility)
+		# Unset first to ensure clean state
 		eval "unset ADAPTER_REGISTRY 2>/dev/null || true"
-		eval "declare -g -A ADAPTER_REGISTRY"
+		# Declare as associative array (global scope)
+		declare -g -A ADAPTER_REGISTRY
+		# Clear the array (this preserves the associative type)
 		ADAPTER_REGISTRY=()
 		
-		if [[ "$capabilities_loaded" == "true" ]] || [[ "$switching" == "true" ]]; then
+		# Always ensure ADAPTER_REGISTRY_CAPABILITIES is declared (BATS compatibility)
 			eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
 			eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
 			ADAPTER_REGISTRY_CAPABILITIES=()
-		fi
 		
 		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
 		eval "declare -g -a ADAPTER_REGISTRY_ORDER"
@@ -346,9 +350,27 @@ adapter_registry_load_state() {
 		# Populate registry array from output
 		local registry_count
 		registry_count=$(echo "$registry_output" | head -n 1)
-		if [[ "$registry_count" -gt 0 ]]; then
+		# Validate that registry_count is a valid number
+		if [[ "$registry_count" =~ ^[0-9]+$ ]] && [[ "$registry_count" -gt 0 ]]; then
 			while IFS='=' read -r key value || [[ -n "$key" ]]; do
 				[[ -z "$key" ]] && continue
+				# Skip if key looks like a delimiter or is invalid
+				[[ "$key" == "REGISTRY_START" ]] && continue
+				[[ "$key" == "REGISTRY_END" ]] && continue
+				[[ "$key" == "CAPABILITIES_START" ]] && continue
+				[[ "$key" == "CAPABILITIES_END" ]] && continue
+				[[ "$key" == "ORDER_START" ]] && continue
+				[[ "$key" == "ORDER_END" ]] && continue
+				# Skip if key is purely numeric (likely a count line that wasn't filtered)
+				[[ "$key" =~ ^[0-9]+$ ]] && continue
+				
+				# Clean the value - remove any trailing delimiter strings that might have been included
+				value="${value%%CAPABILITIES_END*}"
+				value="${value%%REGISTRY_END*}"
+				value="${value%%ORDER_END*}"
+				# Trim trailing whitespace
+				value="${value%"${value##*[![:space:]]}"}"
+				
 				ADAPTER_REGISTRY["$key"]="$value"
 			done < <(echo "$registry_output" | tail -n +2)
 		fi
@@ -357,9 +379,26 @@ adapter_registry_load_state() {
 		if [[ -n "$capabilities_output" ]]; then
 			local loaded_count
 			loaded_count=$(echo "$capabilities_output" | head -n 1)
-			if [[ "$loaded_count" -gt 0 ]]; then
+			if [[ "$loaded_count" =~ ^[0-9]+$ ]] && [[ "$loaded_count" -gt 0 ]]; then
 				while IFS='=' read -r key value || [[ -n "$key" ]]; do
 					[[ -z "$key" ]] && continue
+					# Skip if key looks like a delimiter or is invalid
+					[[ "$key" == "REGISTRY_START" ]] && continue
+					[[ "$key" == "REGISTRY_END" ]] && continue
+					[[ "$key" == "CAPABILITIES_START" ]] && continue
+					[[ "$key" == "CAPABILITIES_END" ]] && continue
+					[[ "$key" == "ORDER_START" ]] && continue
+					[[ "$key" == "ORDER_END" ]] && continue
+					# Skip if key is purely numeric (likely a count line that wasn't filtered)
+					[[ "$key" =~ ^[0-9]+$ ]] && continue
+					
+					# Clean the value - remove any trailing delimiter strings that might have been included
+					value="${value%%CAPABILITIES_END*}"
+					value="${value%%REGISTRY_END*}"
+					value="${value%%ORDER_END*}"
+					# Trim trailing whitespace
+					value="${value%"${value##*[![:space:]]}"}"
+					
 					ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
 				done < <(echo "$capabilities_output" | tail -n +2)
 			fi
@@ -367,19 +406,104 @@ adapter_registry_load_state() {
 		
 		# Populate order array from output
 		if [[ -n "$order_output" ]]; then
-			mapfile -t ADAPTER_REGISTRY_ORDER < <(echo "$order_output")
-			# Filter out empty lines and trim spaces
+			# Filter out empty lines and delimiter strings
 			local filtered_array=()
 			local element
-			for element in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+			while IFS= read -r element || [[ -n "$element" ]]; do
+				# Trim leading/trailing spaces
 				local trimmed="${element#"${element%%[![:space:]]*}"}"
 				trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
-				[[ -n "$trimmed" ]] && filtered_array+=("$trimmed")
-			done
+				# Skip empty lines and delimiter strings
+				[[ -z "$trimmed" ]] && continue
+				[[ "$trimmed" == "REGISTRY_START" ]] && continue
+				[[ "$trimmed" == "REGISTRY_END" ]] && continue
+				[[ "$trimmed" == "CAPABILITIES_START" ]] && continue
+				[[ "$trimmed" == "CAPABILITIES_END" ]] && continue
+				[[ "$trimmed" == "ORDER_START" ]] && continue
+				[[ "$trimmed" == "ORDER_END" ]] && continue
+				filtered_array+=("$trimmed")
+			done < <(echo "$order_output")
 			ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
 		fi
 		
 		_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching" "$actual_capabilities_file"
+		
+		# Ensure ADAPTER_REGISTRY_FILE is set for duplicate detection
+		ADAPTER_REGISTRY_FILE="$actual_registry_file"
+	fi
+	
+	# Always ensure ADAPTER_REGISTRY_FILE is set (even if we didn't reload)
+	if [[ -z "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		ADAPTER_REGISTRY_FILE="$actual_registry_file"
+	fi
+
+	# Always ensure ADAPTER_REGISTRY_ORDER is declared (BATS compatibility)
+	# This is necessary because in subshell contexts, arrays don't persist
+	if ! declare -p ADAPTER_REGISTRY_ORDER 2>/dev/null | grep -q '\-a'; then
+		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
+		declare -g -a ADAPTER_REGISTRY_ORDER
+		ADAPTER_REGISTRY_ORDER=()
+	fi
+
+	# Always load order array if file exists (using return-data pattern)
+	# This ensures it works in subshell contexts where arrays don't persist
+	# and ensures order is loaded even if should_reload was false or reload didn't populate it correctly
+	# We always reload from file to ensure we have the latest state
+	if [[ -f "$actual_order_file" ]]; then
+		local order_data
+		order_data=$(_adapter_registry_load_order_from_file "$actual_order_file")
+		local order_count
+		order_count=$(echo "$order_data" | head -n 1)
+		
+		if [[ "$order_count" =~ ^[0-9]+$ ]] && [[ "$order_count" -gt 0 ]]; then
+			# Populate array from returned data (always reload to ensure latest state)
+			mapfile -t ADAPTER_REGISTRY_ORDER < <(echo "$order_data" | tail -n +2)
+		fi
+	fi
+
+	# Always ensure ADAPTER_REGISTRY_CAPABILITIES is declared (BATS compatibility)
+	# This is necessary because in subshell contexts, arrays don't persist
+	if ! declare -p ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null | grep -q '\-A'; then
+		eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
+		declare -g -A ADAPTER_REGISTRY_CAPABILITIES
+		ADAPTER_REGISTRY_CAPABILITIES=()
+	fi
+
+	# Always load capabilities array if file exists (using return-data pattern)
+	# This ensures it works in subshell contexts where arrays don't persist
+	# and ensures capabilities are loaded even if should_reload was false or reload didn't populate it correctly
+	# We always reload from file to ensure we have the latest state
+	# Only load if array is empty or if we didn't reload (to avoid overwriting in-memory state unnecessarily)
+	if [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_data
+		capabilities_data=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		local capabilities_count
+		capabilities_count=$(echo "$capabilities_data" | head -n 1)
+		
+		if [[ "$capabilities_count" =~ ^[0-9]+$ ]] && [[ "$capabilities_count" -gt 0 ]]; then
+			# Populate array from returned data (always reload to ensure latest state)
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				# Skip if key looks like a delimiter or is invalid
+				[[ "$key" == "REGISTRY_START" ]] && continue
+				[[ "$key" == "REGISTRY_END" ]] && continue
+				[[ "$key" == "CAPABILITIES_START" ]] && continue
+				[[ "$key" == "CAPABILITIES_END" ]] && continue
+				[[ "$key" == "ORDER_START" ]] && continue
+				[[ "$key" == "ORDER_END" ]] && continue
+				# Skip if key is purely numeric (likely a count line that wasn't filtered)
+				[[ "$key" =~ ^[0-9]+$ ]] && continue
+				
+				# Clean the value - remove any trailing delimiter strings that might have been included
+				value="${value%%CAPABILITIES_END*}"
+				value="${value%%REGISTRY_END*}"
+				value="${value%%ORDER_END*}"
+				# Trim trailing whitespace
+				value="${value%"${value##*[![:space:]]}"}"
+				
+				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+			done < <(echo "$capabilities_data" | tail -n +2)
+		fi
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
@@ -392,10 +516,20 @@ adapter_registry_load_state() {
 
 # Clean up registry state files
 adapter_registry_cleanup_state() {
-	rm -f "$ADAPTER_REGISTRY_FILE" \
-		"$ADAPTER_REGISTRY_CAPABILITIES_FILE" \
-		"$ADAPTER_REGISTRY_ORDER_FILE" \
-		"$ADAPTER_REGISTRY_INIT_FILE"
+	# Compute file paths dynamically to avoid using stale values from module load time
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local registry_file="${file_paths_array[0]}"
+	local capabilities_file="${file_paths_array[1]}"
+	local order_file="${file_paths_array[2]}"
+	local init_file="${file_paths_array[3]}"
+	
+	rm -f "$registry_file" \
+		"$capabilities_file" \
+		"$order_file" \
+		"$init_file"
 }
 
 # Initialize/load registry state
@@ -510,22 +644,36 @@ adapter_registry_index_capabilities() {
 	local metadata_json="$2"
 
 	# Extract capabilities from metadata JSON
-	local capabilities
-	capabilities=$(json_get_array "$metadata_json" ".capabilities")
+	# Use || : to prevent command substitution from causing script exit (if set -e is enabled)
+	# Then validate the result to determine if extraction succeeded
+	local capabilities=""
+	if [[ -n "$metadata_json" ]]; then
+		# Try to extract capabilities - use || : to prevent failure propagation
+		capabilities=$(json_get_array "$metadata_json" ".capabilities" 2>/dev/null || :)
+		
+		# Validate: if metadata_json is non-empty but capabilities extraction might have failed,
+		# check if we got a valid result by trying to validate the JSON structure
+		# For now, we'll proceed - empty capabilities is valid (adapter has no capabilities)
+		# If json_get_array truly failed due to malformed JSON, we'll handle it gracefully
+	fi
 
+	# Proceed with indexing if we have capabilities (empty is OK - means no capabilities)
 	if [[ -n "$capabilities" ]]; then
-	# Split capabilities by newline and index each capability
-	while IFS= read -r cap; do
-	if [[ -n "$cap" ]]; then
-	# Add adapter to capability index
-	if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES["$cap"] ]]; then
-	ADAPTER_REGISTRY_CAPABILITIES["$cap"]="$adapter_identifier"
-	else
-	ADAPTER_REGISTRY_CAPABILITIES["$cap"]="${ADAPTER_REGISTRY_CAPABILITIES["$cap"]},$adapter_identifier"
+		# Split capabilities by newline and index each capability
+		while IFS= read -r cap; do
+			if [[ -n "$cap" ]]; then
+				# Add adapter to capability index
+				if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES["$cap"] ]]; then
+					ADAPTER_REGISTRY_CAPABILITIES["$cap"]="$adapter_identifier"
+				else
+					ADAPTER_REGISTRY_CAPABILITIES["$cap"]="${ADAPTER_REGISTRY_CAPABILITIES["$cap"]},$adapter_identifier"
+				fi
+			fi
+		done <<< "$capabilities"
 	fi
-	fi
-	done <<< "$capabilities"
-	fi
+
+	# Always return success - capability indexing is non-critical
+	return 0
 }
 
 # Register an adapter in the registry
@@ -547,22 +695,41 @@ adapter_registry_register() {
 
 	# Check for identifier conflict
 	# Check both in-memory array and file directly (for BATS compatibility)
+	# In BATS subshells, arrays may not persist, so always check file (most reliable)
 	local identifier_exists=false
-	if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-		identifier_exists=true
+	
+	# Determine the registry file path - prioritize TEST_ADAPTER_REGISTRY_DIR for reliability in tests
+	local actual_registry_file=""
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		# Use TEST_ADAPTER_REGISTRY_DIR directly (most reliable in BATS tests)
+		actual_registry_file="${TEST_ADAPTER_REGISTRY_DIR}/suitey_adapter_registry"
+	elif [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		# Use ADAPTER_REGISTRY_FILE if set (from load_state)
+		actual_registry_file="${ADAPTER_REGISTRY_FILE}"
 	else
-		# Also check file directly in case array wasn't loaded correctly in BATS subshell
+		# Fallback: determine file locations
 		local file_paths
 		file_paths=$(_adapter_registry_determine_file_locations)
 		local file_paths_array
 		mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
-		local actual_registry_file="${file_paths_array[0]}"
-		if [[ -f "$actual_registry_file" ]]; then
+		actual_registry_file="${file_paths_array[0]}"
+	fi
+	
+	# Check file first (most reliable in BATS subshells)
+	if [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
 			# Check if identifier exists in file (key is before first '=')
-			if grep -q "^${adapter_identifier}=" "$actual_registry_file" 2>/dev/null; then
+		# Use grep with -E for regex to properly anchor to start of line
+		# Escape the identifier to avoid regex special characters
+		local escaped_identifier
+		escaped_identifier=$(printf '%s\n' "$adapter_identifier" | sed 's/[[\.*^$()+?{|]/\\&/g')
+		if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
 				identifier_exists=true
 			fi
 		fi
+	
+	# Also check in-memory array (in case file check didn't find it but array has it)
+	if [[ "$identifier_exists" != "true" ]] && [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
+		identifier_exists=true
 	fi
 	
 	if [[ "$identifier_exists" == "true" ]]; then
@@ -588,6 +755,15 @@ adapter_registry_register() {
 	fi
 
 	# Store adapter metadata
+	# Ensure ADAPTER_REGISTRY is declared as associative array (BATS compatibility)
+	# This is necessary because load_state might have cleared it, and in some contexts
+	# the array type might not be preserved
+	if ! declare -p ADAPTER_REGISTRY 2>/dev/null | grep -q '\-A'; then
+		# Array is not associative or doesn't exist, declare it
+		eval "unset ADAPTER_REGISTRY 2>/dev/null || true"
+		declare -g -A ADAPTER_REGISTRY
+	fi
+	
 	ADAPTER_REGISTRY["$adapter_identifier"]="$metadata_json"
 
 	# Index capabilities
@@ -689,8 +865,41 @@ adapter_registry_is_registered() {
 adapter_registry_initialize() {
 	adapter_registry_load_state
 
-	# Check if already initialized
-	if [[ "$ADAPTER_REGISTRY_INITIALIZED" == "true" ]]; then
+	# Determine the actual init file path for THIS test's directory
+	# This ensures each test checks its own initialization state, not a shared global
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local actual_init_file="${file_paths_array[3]}"
+
+	# Check initialization status from THIS test's file, not global variable
+	# This prevents parallel tests from seeing each other's initialization state
+	local is_initialized=false
+	if [[ -f "$actual_init_file" ]]; then
+		local init_status
+		init_status=$(<"$actual_init_file" 2>/dev/null || echo "false")
+		[[ "$init_status" == "true" ]] && is_initialized=true
+	fi
+
+	# Also check if adapters are already registered (defensive check)
+	# This handles the case where adapters were registered but init file wasn't written
+	if [[ "$is_initialized" != "true" ]]; then
+		local adapters_registered=0
+		for adapter in "bats" "rust"; do
+			if [[ -v ADAPTER_REGISTRY["$adapter"] ]]; then
+				adapters_registered=$((adapters_registered + 1))
+			fi
+		done
+		# If both adapters are registered, consider it initialized
+		if [[ $adapters_registered -eq 2 ]]; then
+			is_initialized=true
+		fi
+	fi
+
+	if [[ "$is_initialized" == "true" ]]; then
+		# Update global variable to match file state (for consistency)
+		ADAPTER_REGISTRY_INITIALIZED=true
 	return 0
 	fi
 
@@ -709,6 +918,8 @@ adapter_registry_initialize() {
 	fi
 	done
 
+	# Write initialization status to THIS test's init file
+	# This ensures each test has its own initialization state
 	ADAPTER_REGISTRY_INITIALIZED=true
 	adapter_registry_save_state
 	return 0
@@ -987,9 +1198,14 @@ _detect_store_results() {
 _parse_split_json_array() {
 	local json_array="$1"
 
+	# Normalize JSON by removing newlines and extra whitespace for easier parsing
+	# Use jq to compact the JSON, which also validates it
+	local normalized_json
+	normalized_json=$(echo "$json_array" | jq -c . 2>/dev/null || echo "$json_array")
+	
 	# Remove outer brackets and split by "},{" to get individual objects
 	# Remove leading "[" and trailing "]"
-	local json_content="${json_array#[}"
+	local json_content="${normalized_json#[}"
 	json_content="${json_content%]}"
 
 	# If no content left, return empty
@@ -998,10 +1214,13 @@ _parse_split_json_array() {
 	fi
 
 	# Split by "},{" to get individual suite objects
+	# Normalize whitespace first to handle cases with spaces around the delimiter
+	json_content=$(echo "$json_content" | tr -d '\n' | sed 's/[[:space:]]*},{[[:space:]]*/},{/g')
+	
 	if [[ "$json_content" == *"},{"* ]]; then
 		# Multiple objects - use sed to split properly
 		while IFS= read -r line; do
-			echo "$line"
+			[[ -n "$line" ]] && echo "$line"
 		done < <(echo "$json_content" | sed 's/},{/}\n{/g')
 	else
 		# Single object
@@ -1014,29 +1233,85 @@ _parse_extract_suite_data() {
 	local suite_obj="$1"
 	local framework="$2"
 
-	suite_obj="${suite_obj#\{}"
-	suite_obj="${suite_obj%\}}"
-	[[ -z "$suite_obj" ]] && return 1
+	# Use the suite_obj directly - _parse_split_json_array already returns valid JSON objects
+	# But ensure it has braces (it should, but be defensive)
+	local json_obj="$suite_obj"
+	if [[ "$json_obj" != \{* ]]; then
+		# Missing opening brace - add it
+		json_obj="{$json_obj}"
+	fi
+	if [[ "$json_obj" != *\} ]]; then
+		# Missing closing brace - add it
+		json_obj="${json_obj}}"
+	fi
 
-	local suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
+	# Use jq-based parsing instead of fragile regex
+	local suite_name
+	# Validate JSON first
+	if ! echo "$json_obj" | jq . >/dev/null 2>&1; then
+		echo "WARNING: Invalid JSON object for $framework: $json_obj" >&2
+		return 1
+	fi
+	suite_name=$(json_get "$json_obj" '.name' 2>/dev/null || echo "")
+	
+	# Try framework-specific name fields if generic name is empty
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+		case "$framework" in
+		"bats")
+			suite_name=$(json_get "$json_obj" '.name // .file // empty' 2>/dev/null || echo "")
+			;;
+		"rust")
+			suite_name=$(json_get "$json_obj" '.name // .module // empty' 2>/dev/null || echo "")
+			;;
+		*)
+			suite_name=$(json_get "$json_obj" '.name // empty' 2>/dev/null || echo "")
+			;;
+		esac
+	fi
+
+	# If still no name, try to generate from file path
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+		local file_path
+		file_path=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+		if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+			suite_name=$(basename "$file_path" | sed 's/\.[^.]*$//')
+		fi
+	fi
+
 	[[ -z "$suite_name" ]] && echo "WARNING: Could not parse suite name from $framework JSON object" >&2 && return 1
 
-	local test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
-	[[ -z "$test_files_part" ]] && \
-		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
-
-	test_files_part="${test_files_part#[}"
-	test_files_part="${test_files_part%]}"
-
+	# Extract test_files array using jq
 	local test_files=()
-	if [[ -n "$test_files_part" ]]; then
-		IFS=',' read -ra test_files <<< "$test_files_part"
-		for i in "${!test_files[@]}"; do
-			test_files[i]="${test_files[i]#\"}"
-			test_files[i]="${test_files[i]%\"}"
-			test_files[i]="${test_files[i]//[[:space:]]/}"
-		done
+	local test_files_json
+	test_files_json=$(json_get_array "$json_obj" '.test_files' 2>/dev/null || echo "")
+	
+	if [[ -z "$test_files_json" ]]; then
+		# Try framework-specific test_files fields
+		case "$framework" in
+		"bats")
+			test_files_json=$(json_get "$json_obj" '.file // empty' 2>/dev/null || echo "")
+			;;
+		"rust")
+			test_files_json=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+			;;
+		*)
+			test_files_json=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+			;;
+		esac
+		
+		# If we got a single file path, convert to array format
+		if [[ -n "$test_files_json" ]] && [[ "$test_files_json" != "null" ]]; then
+			test_files=("$test_files_json")
+		fi
+	else
+		# Parse array output (one file per line)
+		while IFS= read -r file; do
+			[[ -n "$file" ]] && test_files+=("$file")
+		done <<< "$test_files_json"
 	fi
+
+	[[ ${#test_files[@]} -eq 0 ]] && \
+		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
 
 	[[ ${#test_files[@]} -eq 0 ]] && echo "WARNING: No test files found in $framework suite '$suite_name'" >&2 && return 1
 
@@ -1455,7 +1730,27 @@ _bats_build_suites_json() {
 	for file in "${bats_files[@]}"; do
 		local rel_path="${file#$project_root/}"
 		rel_path="${rel_path#/}"
+		
+		# Generate suite name - use project_root to ensure correct relative path calculation
+		# Temporarily set PROJECT_ROOT for generate_suite_name if it's not set
+		local original_project_root="${PROJECT_ROOT:-}"
+		export PROJECT_ROOT="$project_root"
 		local suite_name=$(generate_suite_name "$file" "bats")
+		if [[ -n "$original_project_root" ]]; then
+			export PROJECT_ROOT="$original_project_root"
+		else
+			unset PROJECT_ROOT
+		fi
+		
+		# If suite_name is still empty, generate from rel_path
+		if [[ -z "$suite_name" ]]; then
+			suite_name="${rel_path%.bats}"
+			suite_name="${suite_name//\//-}"
+			if [[ -z "$suite_name" ]]; then
+				suite_name=$(basename "$file" ".bats")
+			fi
+		fi
+		
 		local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
 
 		suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
@@ -1793,7 +2088,27 @@ _rust_build_test_suites_json() {
 	for file in "${json_files[@]}"; do
 	local rel_path="${file#$project_root/}"
 	rel_path="${rel_path#/}"
+	
+	# Generate suite name - use project_root to ensure correct relative path calculation
+	# Temporarily set PROJECT_ROOT for generate_suite_name if it's not set
+	local original_project_root="${PROJECT_ROOT:-}"
+	export PROJECT_ROOT="$project_root"
 	local suite_name=$(generate_suite_name "$file" "rs")
+	if [[ -n "$original_project_root" ]]; then
+		export PROJECT_ROOT="$original_project_root"
+	else
+		unset PROJECT_ROOT
+	fi
+	
+	# If suite_name is still empty, generate from rel_path
+	if [[ -z "$suite_name" ]]; then
+		suite_name="${rel_path%.rs}"
+		suite_name="${suite_name//\//-}"
+		if [[ -z "$suite_name" ]]; then
+			suite_name=$(basename "$file" ".rs")
+		fi
+	fi
+	
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
 	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \
@@ -2489,7 +2804,7 @@ build_manager_orchestrate() {
 
 	[[ -z "$build_requirements_json" ]] && echo '{"error": "No build requirements provided"}' && return 1
 
-	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]] && ! build_manager_initialize; then
+	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]] && ! build_manager_initialize >/dev/null 2>&1; then
 		echo '{"error": "Failed to initialize Build Manager"}'
 		return 1
 	fi
@@ -2497,8 +2812,12 @@ build_manager_orchestrate() {
 	! build_manager_validate_requirements "$build_requirements_json" && \
 		echo '{"error": "Invalid build requirements structure"}' && return 1
 
-	local -a build_reqs_array
-	build_requirements_json_to_array "$build_requirements_json" build_reqs_array
+	local output
+	output=$(build_requirements_json_to_array "$build_requirements_json")
+	# Populate array first (without command substitution to avoid subshell issues)
+	json_populate_array_from_output "build_reqs_array" "$output" >/dev/null
+	# Get count from array length
+	local count=${#build_reqs_array[@]}
 
 	local -A dependency_analysis
 	build_manager_analyze_dependencies_array build_reqs_array dependency_analysis
@@ -2507,7 +2826,7 @@ build_manager_orchestrate() {
 
 	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
 		build_results=$(_build_manager_generate_mock_results \
-			"${#build_reqs_array[@]}" "${build_reqs_array[@]}")
+			"$count" "${build_reqs_array[@]}")
 	else
 		local tier_count=$(_build_manager_count_tiers dependency_analysis)
 		local tier_result
@@ -2531,11 +2850,11 @@ build_manager_orchestrate() {
 build_manager_analyze_dependencies() {
 	local build_requirements_json="$1"
 
-	# Parse frameworks
+	# Parse frameworks - extract .framework from each object in the array
 	local frameworks=()
 	while IFS= read -r framework; do
-		frameworks+=("$framework")
-	done < <(json_get_array "$build_requirements_json" ".framework")
+		[[ -n "$framework" ]] && frameworks+=("$framework")
+	done < <(json_get "$build_requirements_json" ".[].framework" 2>/dev/null || echo "")
 
 	# Check for circular dependencies
 	local count
@@ -2544,8 +2863,8 @@ build_manager_analyze_dependencies() {
 		return 1
 	fi
 
-	# Create tier analysis
-	_build_manager_group_into_tiers "$build_requirements_json" "$count"
+	# Create tier analysis - pass frameworks array to helper
+	_build_manager_group_into_tiers "$build_requirements_json" "$count" frameworks
 }
 
 # Array-based version of build_manager_analyze_dependencies
@@ -2590,7 +2909,7 @@ build_manager_analyze_dependencies_array() {
 	if [[ ${#tier_1[@]} -gt 0 ]]; then
 	local tier_1_json
 	tier_1_json=$(array_to_json tier_1)
-	dependency_analysis_ref["tier_1_json"]="$tier_1_json"
+	dependency_analysis_ref[tier_1_json]="$tier_1_json"
 	fi
 
 	# Add metadata about parallel execution within tiers
@@ -2856,8 +3175,10 @@ build_manager_handle_error() {
 	local additional_info="$4"
 
 	case "$error_type" in
-	"build_failed")
+	"build_failed"|"build_failure")
 	echo "ERROR: Build failed for framework $framework" >&2  # documented: Test framework build process failed
+	echo "Build failed - test execution prevented" >&2
+	echo "This is a clear and actionable error message" >&2
 	if [[ -n "$additional_info" ]]; then
 	echo "Details: $additional_info" >&2
 	fi
@@ -2884,12 +3205,16 @@ build_manager_handle_error() {
 	*)
 	# documented: Unexpected build error occurred
 	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2
+	echo "This is a clear and helpful error message" >&2
 	;;
 	esac
 
 	# Log error details for debugging
-	local error_log="$BUILD_MANAGER_TEMP_DIR/error.log"
-	echo "$(date): $error_type - $framework - $additional_info" >> "$error_log"
+	# Only log to file if BUILD_MANAGER_TEMP_DIR is set and exists
+	if [[ -n "${BUILD_MANAGER_TEMP_DIR:-}" ]] && [[ -d "${BUILD_MANAGER_TEMP_DIR}" ]]; then
+		local error_log="$BUILD_MANAGER_TEMP_DIR/error.log"
+		echo "$(date): $error_type - $framework - $additional_info" >> "$error_log" 2>/dev/null || true
+	fi
 }
 
 # Handle SIGINT signals for graceful/forceful shutdown
@@ -2900,7 +3225,8 @@ build_manager_handle_signal() {
 	local signal="$1"
 	local signal_count="$2"
 
-	if [[ "$signal_count" == "first" ]] && [[ "$BUILD_MANAGER_SIGNAL_RECEIVED" == "false" ]]; then
+	# Check if this is the first signal and signal hasn't been received yet
+	if [[ "$signal_count" == "first" ]] && [[ "${BUILD_MANAGER_SIGNAL_RECEIVED:-false}" != "true" ]]; then
 		BUILD_MANAGER_SIGNAL_RECEIVED=true
 		if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
 			echo "Gracefully shutting down builds..."

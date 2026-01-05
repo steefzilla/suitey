@@ -253,3 +253,120 @@ setup() {
 	[ ${#test_array[@]} -eq 2 ]
 }
 
+# ============================================================================
+# json_populate_array_from_output Tests (Regression Tests)
+# ============================================================================
+
+@test "json_populate_array_from_output handles single element (tests pre-increment fix)" {
+	# This test specifically catches the bug where ((idx++)) fails with set -e
+	# when idx is 0. The fix uses ((++idx)) instead.
+	local output="1
+single_element"
+	declare -a test_array
+	
+	json_populate_array_from_output "test_array" "$output" >/dev/null
+	
+	[ ${#test_array[@]} -eq 1 ]
+	[ "${test_array[0]}" = "single_element" ]
+}
+
+@test "json_populate_array_from_output handles empty array (count=0)" {
+	# Test that function doesn't try to increment idx when count is 0
+	# This is important because the loop doesn't execute, so we need to ensure
+	# the function doesn't fail with set -e when idx would be 0
+	local output="0"
+	declare -a test_array
+	
+	# Function should return 0 and not fail
+	run json_populate_array_from_output "test_array" "$output"
+	
+	[ "$status" -eq 0 ]
+	[ "$output" = "0" ]
+}
+
+@test "json_populate_array_from_output handles multiple elements" {
+	local output="3
+element1
+element2
+element3"
+	declare -a test_array
+	
+	json_populate_array_from_output "test_array" "$output" >/dev/null
+	
+	[ ${#test_array[@]} -eq 3 ]
+	[ "${test_array[0]}" = "element1" ]
+	[ "${test_array[1]}" = "element2" ]
+	[ "${test_array[2]}" = "element3" ]
+}
+
+@test "json_populate_array_from_output skips empty lines" {
+	local output="2
+element1
+
+element2"
+	declare -a test_array
+	
+	json_populate_array_from_output "test_array" "$output" >/dev/null
+	
+	[ ${#test_array[@]} -eq 2 ]
+	[ "${test_array[0]}" = "element1" ]
+	[ "${test_array[1]}" = "element2" ]
+}
+
+@test "json_populate_array_from_output works with set -e enabled" {
+	# This test ensures the pre-increment fix works with set -e
+	set -e
+	local output="1
+test_element"
+	declare -a test_array
+	
+	json_populate_array_from_output "test_array" "$output" >/dev/null
+	
+	[ ${#test_array[@]} -eq 1 ]
+	[ "${test_array[0]}" = "test_element" ]
+	set +e
+}
+
+@test "build_requirements_json_to_array handles single non-null element (tests pre-increment fix)" {
+	# This test catches the bug where ((count++)) fails with set -e when count is 0
+	local json='[{"framework":"test1"}]'
+	declare -a test_array
+	
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	# Should count 1 element (not fail on increment from 0)
+	[ "$count" -eq 1 ]
+}
+
+@test "build_requirements_json_to_array works with set -e enabled" {
+	# This test ensures the pre-increment fix works with set -e
+	set -e
+	local json='[{"framework":"test1"},{"framework":"test2"}]'
+	declare -a test_array
+	
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	[ "$count" -eq 2 ]
+	set +e
+}
+
+@test "build_requirements_json_to_array handles all null values" {
+	# Test that count stays at 0 and doesn't fail on increment
+	local json='[null,null]'
+	declare -a test_array
+	
+	local output
+	output=$(build_requirements_json_to_array "$json")
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	[ "$count" -eq 0 ]
+	[ ${#test_array[@]} -eq 0 ]
+}
+

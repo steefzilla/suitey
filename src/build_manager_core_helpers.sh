@@ -120,11 +120,12 @@ _build_manager_check_circular_deps() {
 _build_manager_group_into_tiers() {
 	local build_requirements_json="$1"
 	local count="$2"
+	local -n frameworks_ref="$3"  # Nameref to receive frameworks array
 
 	local tier_0=()
 	local tier_1=()
 
-	for framework in "${frameworks[@]}"; do
+	for framework in "${frameworks_ref[@]}"; do
 		# Get dependencies for this framework
 		local deps_length
 		# Find the framework and get its dependency count
@@ -169,9 +170,9 @@ _build_manager_group_into_tiers() {
 
 # Helper: Count dependency tiers
 _build_manager_count_tiers() {
-	local dependency_analysis="$1"
+	local -n dependency_analysis_ref="$1"
 	local tier_count=0
-	for key in "${!dependency_analysis[@]}"; do
+	for key in "${!dependency_analysis_ref[@]}"; do
 		if [[ "$key" == tier_*_json ]]; then
 			((tier_count++))
 		fi

@@ -192,7 +192,27 @@ _rust_build_test_suites_json() {
 	for file in "${json_files[@]}"; do
 	local rel_path="${file#$project_root/}"
 	rel_path="${rel_path#/}"
+	
+	# Generate suite name - use project_root to ensure correct relative path calculation
+	# Temporarily set PROJECT_ROOT for generate_suite_name if it's not set
+	local original_project_root="${PROJECT_ROOT:-}"
+	export PROJECT_ROOT="$project_root"
 	local suite_name=$(generate_suite_name "$file" "rs")
+	if [[ -n "$original_project_root" ]]; then
+		export PROJECT_ROOT="$original_project_root"
+	else
+		unset PROJECT_ROOT
+	fi
+	
+	# If suite_name is still empty, generate from rel_path
+	if [[ -z "$suite_name" ]]; then
+		suite_name="${rel_path%.rs}"
+		suite_name="${suite_name//\//-}"
+		if [[ -z "$suite_name" ]]; then
+			suite_name=$(basename "$file" ".rs")
+		fi
+	fi
+	
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
 	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \

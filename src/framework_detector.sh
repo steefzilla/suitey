@@ -261,9 +261,14 @@ _detect_store_results() {
 _parse_split_json_array() {
 	local json_array="$1"
 
+	# Normalize JSON by removing newlines and extra whitespace for easier parsing
+	# Use jq to compact the JSON, which also validates it
+	local normalized_json
+	normalized_json=$(echo "$json_array" | jq -c . 2>/dev/null || echo "$json_array")
+	
 	# Remove outer brackets and split by "},{" to get individual objects
 	# Remove leading "[" and trailing "]"
-	local json_content="${json_array#[}"
+	local json_content="${normalized_json#[}"
 	json_content="${json_content%]}"
 
 	# If no content left, return empty
@@ -272,10 +277,13 @@ _parse_split_json_array() {
 	fi
 
 	# Split by "},{" to get individual suite objects
+	# Normalize whitespace first to handle cases with spaces around the delimiter
+	json_content=$(echo "$json_content" | tr -d '\n' | sed 's/[[:space:]]*},{[[:space:]]*/},{/g')
+	
 	if [[ "$json_content" == *"},{"* ]]; then
 		# Multiple objects - use sed to split properly
 		while IFS= read -r line; do
-			echo "$line"
+			[[ -n "$line" ]] && echo "$line"
 		done < <(echo "$json_content" | sed 's/},{/}\n{/g')
 	else
 		# Single object
@@ -288,29 +296,85 @@ _parse_extract_suite_data() {
 	local suite_obj="$1"
 	local framework="$2"
 
-	suite_obj="${suite_obj#\{}"
-	suite_obj="${suite_obj%\}}"
-	[[ -z "$suite_obj" ]] && return 1
+	# Use the suite_obj directly - _parse_split_json_array already returns valid JSON objects
+	# But ensure it has braces (it should, but be defensive)
+	local json_obj="$suite_obj"
+	if [[ "$json_obj" != \{* ]]; then
+		# Missing opening brace - add it
+		json_obj="{$json_obj}"
+	fi
+	if [[ "$json_obj" != *\} ]]; then
+		# Missing closing brace - add it
+		json_obj="${json_obj}}"
+	fi
 
-	local suite_name=$(echo "$suite_obj" | grep -o '"name"[^,]*' | sed 's/"name"://' | sed 's/"//g' | head -1)
+	# Use jq-based parsing instead of fragile regex
+	local suite_name
+	# Validate JSON first
+	if ! echo "$json_obj" | jq . >/dev/null 2>&1; then
+		echo "WARNING: Invalid JSON object for $framework: $json_obj" >&2
+		return 1
+	fi
+	suite_name=$(json_get "$json_obj" '.name' 2>/dev/null || echo "")
+	
+	# Try framework-specific name fields if generic name is empty
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+		case "$framework" in
+		"bats")
+			suite_name=$(json_get "$json_obj" '.name // .file // empty' 2>/dev/null || echo "")
+			;;
+		"rust")
+			suite_name=$(json_get "$json_obj" '.name // .module // empty' 2>/dev/null || echo "")
+			;;
+		*)
+			suite_name=$(json_get "$json_obj" '.name // empty' 2>/dev/null || echo "")
+			;;
+		esac
+	fi
+
+	# If still no name, try to generate from file path
+	if [[ -z "$suite_name" ]] || [[ "$suite_name" == "null" ]]; then
+		local file_path
+		file_path=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+		if [[ -n "$file_path" ]] && [[ "$file_path" != "null" ]]; then
+			suite_name=$(basename "$file_path" | sed 's/\.[^.]*$//')
+		fi
+	fi
+
 	[[ -z "$suite_name" ]] && echo "WARNING: Could not parse suite name from $framework JSON object" >&2 && return 1
 
-	local test_files_part=$(echo "$suite_obj" | grep -o '"test_files"[^]]*]' | sed 's/"test_files"://' | head -1)
-	[[ -z "$test_files_part" ]] && \
-		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
-
-	test_files_part="${test_files_part#[}"
-	test_files_part="${test_files_part%]}"
-
+	# Extract test_files array using jq
 	local test_files=()
-	if [[ -n "$test_files_part" ]]; then
-		IFS=',' read -ra test_files <<< "$test_files_part"
-		for i in "${!test_files[@]}"; do
-			test_files[i]="${test_files[i]#\"}"
-			test_files[i]="${test_files[i]%\"}"
-			test_files[i]="${test_files[i]//[[:space:]]/}"
-		done
+	local test_files_json
+	test_files_json=$(json_get_array "$json_obj" '.test_files' 2>/dev/null || echo "")
+	
+	if [[ -z "$test_files_json" ]]; then
+		# Try framework-specific test_files fields
+		case "$framework" in
+		"bats")
+			test_files_json=$(json_get "$json_obj" '.file // empty' 2>/dev/null || echo "")
+			;;
+		"rust")
+			test_files_json=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+			;;
+		*)
+			test_files_json=$(json_get "$json_obj" '.file // .path // empty' 2>/dev/null || echo "")
+			;;
+		esac
+		
+		# If we got a single file path, convert to array format
+		if [[ -n "$test_files_json" ]] && [[ "$test_files_json" != "null" ]]; then
+			test_files=("$test_files_json")
+		fi
+	else
+		# Parse array output (one file per line)
+		while IFS= read -r file; do
+			[[ -n "$file" ]] && test_files+=("$file")
+		done <<< "$test_files_json"
 	fi
+
+	[[ ${#test_files[@]} -eq 0 ]] && \
+		echo "WARNING: Could not parse test_files from $framework suite '$suite_name'" >&2 && return 1
 
 	[[ ${#test_files[@]} -eq 0 ]] && echo "WARNING: No test files found in $framework suite '$suite_name'" >&2 && return 1
 

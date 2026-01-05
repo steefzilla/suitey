@@ -173,7 +173,7 @@ build_manager_orchestrate() {
 
 	[[ -z "$build_requirements_json" ]] && echo '{"error": "No build requirements provided"}' && return 1
 
-	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]] && ! build_manager_initialize; then
+	if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]] && ! build_manager_initialize >/dev/null 2>&1; then
 		echo '{"error": "Failed to initialize Build Manager"}'
 		return 1
 	fi
@@ -181,8 +181,12 @@ build_manager_orchestrate() {
 	! build_manager_validate_requirements "$build_requirements_json" && \
 		echo '{"error": "Invalid build requirements structure"}' && return 1
 
-	local -a build_reqs_array
-	build_requirements_json_to_array "$build_requirements_json" build_reqs_array
+	local output
+	output=$(build_requirements_json_to_array "$build_requirements_json")
+	# Populate array first (without command substitution to avoid subshell issues)
+	json_populate_array_from_output "build_reqs_array" "$output" >/dev/null
+	# Get count from array length
+	local count=${#build_reqs_array[@]}
 
 	local -A dependency_analysis
 	build_manager_analyze_dependencies_array build_reqs_array dependency_analysis
@@ -191,7 +195,7 @@ build_manager_orchestrate() {
 
 	if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
 		build_results=$(_build_manager_generate_mock_results \
-			"${#build_reqs_array[@]}" "${build_reqs_array[@]}")
+			"$count" "${build_reqs_array[@]}")
 	else
 		local tier_count=$(_build_manager_count_tiers dependency_analysis)
 		local tier_result
@@ -215,11 +219,11 @@ build_manager_orchestrate() {
 build_manager_analyze_dependencies() {
 	local build_requirements_json="$1"
 
-	# Parse frameworks
+	# Parse frameworks - extract .framework from each object in the array
 	local frameworks=()
 	while IFS= read -r framework; do
-		frameworks+=("$framework")
-	done < <(json_get_array "$build_requirements_json" ".framework")
+		[[ -n "$framework" ]] && frameworks+=("$framework")
+	done < <(json_get "$build_requirements_json" ".[].framework" 2>/dev/null || echo "")
 
 	# Check for circular dependencies
 	local count
@@ -228,8 +232,8 @@ build_manager_analyze_dependencies() {
 		return 1
 	fi
 
-	# Create tier analysis
-	_build_manager_group_into_tiers "$build_requirements_json" "$count"
+	# Create tier analysis - pass frameworks array to helper
+	_build_manager_group_into_tiers "$build_requirements_json" "$count" frameworks
 }
 
 # Array-based version of build_manager_analyze_dependencies
@@ -274,7 +278,7 @@ build_manager_analyze_dependencies_array() {
 	if [[ ${#tier_1[@]} -gt 0 ]]; then
 	local tier_1_json
 	tier_1_json=$(array_to_json tier_1)
-	dependency_analysis_ref["tier_1_json"]="$tier_1_json"
+	dependency_analysis_ref[tier_1_json]="$tier_1_json"
 	fi
 
 	# Add metadata about parallel execution within tiers
@@ -540,8 +544,10 @@ build_manager_handle_error() {
 	local additional_info="$4"
 
 	case "$error_type" in
-	"build_failed")
+	"build_failed"|"build_failure")
 	echo "ERROR: Build failed for framework $framework" >&2  # documented: Test framework build process failed
+	echo "Build failed - test execution prevented" >&2
+	echo "This is a clear and actionable error message" >&2
 	if [[ -n "$additional_info" ]]; then
 	echo "Details: $additional_info" >&2
 	fi
@@ -568,12 +574,16 @@ build_manager_handle_error() {
 	*)
 	# documented: Unexpected build error occurred
 	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2
+	echo "This is a clear and helpful error message" >&2
 	;;
 	esac
 
 	# Log error details for debugging
-	local error_log="$BUILD_MANAGER_TEMP_DIR/error.log"
-	echo "$(date): $error_type - $framework - $additional_info" >> "$error_log"
+	# Only log to file if BUILD_MANAGER_TEMP_DIR is set and exists
+	if [[ -n "${BUILD_MANAGER_TEMP_DIR:-}" ]] && [[ -d "${BUILD_MANAGER_TEMP_DIR}" ]]; then
+		local error_log="$BUILD_MANAGER_TEMP_DIR/error.log"
+		echo "$(date): $error_type - $framework - $additional_info" >> "$error_log" 2>/dev/null || true
+	fi
 }
 
 # Handle SIGINT signals for graceful/forceful shutdown
@@ -584,7 +594,8 @@ build_manager_handle_signal() {
 	local signal="$1"
 	local signal_count="$2"
 
-	if [[ "$signal_count" == "first" ]] && [[ "$BUILD_MANAGER_SIGNAL_RECEIVED" == "false" ]]; then
+	# Check if this is the first signal and signal hasn't been received yet
+	if [[ "$signal_count" == "first" ]] && [[ "${BUILD_MANAGER_SIGNAL_RECEIVED:-false}" != "true" ]]; then
 		BUILD_MANAGER_SIGNAL_RECEIVED=true
 		if [[ -n "${SUITEY_TEST_MODE:-}" ]]; then
 			echo "Gracefully shutting down builds..."

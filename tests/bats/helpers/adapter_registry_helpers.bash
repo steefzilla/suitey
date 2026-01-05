@@ -68,12 +68,30 @@ source "$adapter_registry_script"
 json_test_get() {
   local json="$1"
   local path="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
   echo "$json" | jq -r "$path" 2>/dev/null || return 1
 }
 
 json_test_has_field() {
   local json="$1"
   local field="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
   echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
 }
 
