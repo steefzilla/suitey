@@ -44,12 +44,30 @@ source "$adapter_registry_helpers_script"
 json_test_get() {
   local json="$1"
   local path="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
   echo "$json" | jq -r "$path" 2>/dev/null || return 1
 }
 
 json_test_has_field() {
   local json="$1"
   local field="$2"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
   echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
 }
 
@@ -57,6 +75,15 @@ json_test_field_contains() {
   local json="$1"
   local field="$2"
   local value="$3"
+  
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  json="${json%%REGISTRY_END*}"
+  json="${json%%CAPABILITIES_END*}"
+  json="${json%%ORDER_END*}"
+  json="${json#*REGISTRY_START}"
+  json="${json#*CAPABILITIES_START}"
+  json="${json#*ORDER_START}"
+  
   echo "$json" | jq -r ".$field" 2>/dev/null | grep -q "$value" 2>/dev/null
 }
 
@@ -836,6 +863,14 @@ assert_adapter_metadata() {
   local field="$3"
   local expected_value="$4"
 
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
+
   if ! json_test_field_contains "$output" "$field" "$expected_value"; then
     echo "ERROR: Expected metadata field '$field' with value '$expected_value' for adapter '$adapter_identifier'"
     echo "Output was: $output"
@@ -849,6 +884,14 @@ assert_adapter_metadata() {
 assert_adapter_metadata_structure() {
   local output="$1"
   local adapter_identifier="$2"
+
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
 
   local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries")
 
@@ -868,6 +911,14 @@ assert_adapter_capabilities() {
   local output="$1"
   local adapter_identifier="$2"
   local expected_capability="$3"
+
+  # Strip REGISTRY_END and other markers that might pollute JSON output
+  output="${output%%REGISTRY_END*}"
+  output="${output%%CAPABILITIES_END*}"
+  output="${output%%ORDER_END*}"
+  output="${output#*REGISTRY_START}"
+  output="${output#*CAPABILITIES_START}"
+  output="${output#*ORDER_START}"
 
   if ! json_test_field_contains "$output" "capabilities" "$expected_capability"; then
     echo "ERROR: Expected capability '$expected_capability' for adapter '$adapter_identifier'"

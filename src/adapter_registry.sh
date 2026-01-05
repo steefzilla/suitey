@@ -232,6 +232,14 @@ adapter_registry_load_state() {
 				[[ "$key" == "ORDER_END" ]] && continue
 				# Skip if key is purely numeric (likely a count line that wasn't filtered)
 				[[ "$key" =~ ^[0-9]+$ ]] && continue
+				
+				# Clean the value - remove any trailing delimiter strings that might have been included
+				value="${value%%CAPABILITIES_END*}"
+				value="${value%%REGISTRY_END*}"
+				value="${value%%ORDER_END*}"
+				# Trim trailing whitespace
+				value="${value%"${value##*[![:space:]]}"}"
+				
 				ADAPTER_REGISTRY["$key"]="$value"
 			done < <(echo "$registry_output" | tail -n +2)
 		fi

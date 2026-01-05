@@ -1,7 +1,7 @@
 ---
 alwaysApply: true
 ---
-Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user. However, whenever you implement a function, you must write unit and integrations for it.
+Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user. However, before implement a function, you must write unit and integrations for it. The tests must fail. Then you can proceed to implement it to make the tests pass.
 
 Do not create debug scripts or put debug statements in the code to diagnose a problem. If there's uncertainty about a function or peice of code, use unit/integration tests to remove that uncertainty:
 1. Find all unit tests relevant to that code.
