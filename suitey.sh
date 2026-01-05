@@ -30,10 +30,15 @@ set -euo pipefail
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Colors for output (if terminal supports it)
@@ -151,10 +156,15 @@ count_tests_in_file() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -229,7 +239,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY - verify directory exists and is writable
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -245,11 +256,14 @@ adapter_registry_save_state() {
 	for key in "${!ADAPTER_REGISTRY[@]}"; do
 	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
 	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with base64 + tr
 	fi
 
@@ -265,14 +279,16 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_CAPABILITIES - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
 
 	# Create/truncate file with error checking using touch + verify
 	if ! touch "$capabilities_file" 2>&1 || [[ ! -f "$capabilities_file" ]]; then
-	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2  # documented: Capabilities file creation failed
+	# documented: Capabilities file creation failed
+	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2
 	return 1
 	fi
 	# Truncate it
@@ -281,11 +297,14 @@ adapter_registry_save_state() {
 	for key in "${!ADAPTER_REGISTRY_CAPABILITIES[@]}"; do
 	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
 	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with base64 + tr
 	fi
 
@@ -301,7 +320,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_ORDER - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -314,7 +334,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_INITIALIZED - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -353,7 +374,9 @@ adapter_registry_load_state() {
 
 	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
 	# or if registry file exists in the new location, or if globals haven't been set yet
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || [[ -f "$registry_file" ]] || [[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
+		[[ -f "$registry_file" ]] || \
+		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
 	REGISTRY_BASE_DIR="$registry_base_dir"
 	ADAPTER_REGISTRY_FILE="$registry_file"
 	ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
@@ -411,7 +434,8 @@ adapter_registry_load_state() {
 	if [[ -n "$decoded_value" ]]; then
 	ADAPTER_REGISTRY["$key"]="$decoded_value"
 	else
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
+	# documented: Base64 decode failed, skipping corrupted registry entry
+	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
 	fi
 	fi
 	done < "$actual_registry_file"
@@ -442,7 +466,8 @@ adapter_registry_load_state() {
 	ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
 	capabilities_loaded=true
 	else
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
+	# documented: Base64 decode failed, skipping corrupted registry entry
+	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
 	fi
 	fi
 	done < "$actual_capabilities_file"
@@ -498,7 +523,10 @@ adapter_registry_load_state() {
 
 # Clean up registry state files
 adapter_registry_cleanup_state() {
-	rm -f "$ADAPTER_REGISTRY_FILE" "$ADAPTER_REGISTRY_CAPABILITIES_FILE" "$ADAPTER_REGISTRY_ORDER_FILE" "$ADAPTER_REGISTRY_INIT_FILE"
+	rm -f "$ADAPTER_REGISTRY_FILE" \
+		"$ADAPTER_REGISTRY_CAPABILITIES_FILE" \
+		"$ADAPTER_REGISTRY_ORDER_FILE" \
+		"$ADAPTER_REGISTRY_INIT_FILE"
 }
 
 # Initialize/load registry state
@@ -526,7 +554,8 @@ adapter_registry_validate_interface() {
 	# Check that each required method exists
 	for method in "${required_methods[@]}"; do
 	if ! command -v "$method" >/dev/null 2>&1; then
-	echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2  # documented: Required adapter interface method missing
+	# documented: Required adapter interface method missing
+	echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2
 	return 1
 	fi
 	done
@@ -556,7 +585,8 @@ adapter_registry_extract_metadata() {
 	echo "$metadata_output"
 	return 0
 	else
-	echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2  # documented: Adapter metadata function failed or returned empty result
+	# documented: Adapter metadata function failed or returned empty result
+	echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2
 	if [[ -n "$metadata_output" ]]; then
 	echo "$metadata_output" >&2
 	fi
@@ -576,12 +606,16 @@ adapter_registry_validate_metadata() {
 
 
 	# Required fields that must be present in metadata
-	local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries" "configuration_files")
+	local required_fields=(
+		"name" "identifier" "version" "supported_languages"
+		"capabilities" "required_binaries" "configuration_files"
+	)
 
 	# Check that each required field is present
 	for field in "${required_fields[@]}"; do
 	if ! json_has_field "$metadata_json" "$field"; then
-	echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2  # documented: Required metadata field missing
+	# documented: Required metadata field missing
+	echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2
 	return 1
 	fi
 	done
@@ -590,7 +624,8 @@ adapter_registry_validate_metadata() {
 	local actual_identifier
 	actual_identifier=$(json_get "$metadata_json" ".identifier")
 	if [[ "$actual_identifier" != "$adapter_identifier" ]]; then
-	echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2  # documented: Adapter identifier mismatch in metadata
+	# documented: Adapter identifier mismatch in metadata
+	echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2
 	return 1
 	fi
 
@@ -643,7 +678,8 @@ adapter_registry_register() {
 
 	# Check for identifier conflict
 	if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-	echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2  # documented: Duplicate adapter identifier
+	# documented: Duplicate adapter identifier
+	echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2
 	return 1
 	fi
 
@@ -816,10 +852,15 @@ adapter_registry_cleanup() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -909,7 +950,8 @@ parse_test_suites_json() {
 
 	# Basic JSON validation - must start with [ and end with ]
 	if [[ "$json_array" != \[*\] ]]; then
-	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2  # documented: Framework detection result is malformed JSON
+	# documented: Framework detection result is malformed JSON
+	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
 	return 1
 	fi
 
@@ -1038,10 +1080,21 @@ detect_frameworks() {
 	echo "using adapter registry" >&2
 
 	# Register any test adapters that are available (for testing)
-	local potential_adapters=("comprehensive_adapter" "mock_detector_adapter" "failing_adapter" "binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter" "iter_adapter1" "iter_adapter2" "iter_adapter3" "skip_adapter1" "skip_adapter2" "skip_adapter3" "metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter" "workflow_adapter1" "workflow_adapter2" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "mock_detector_adapter" "failing_adapter"
+		"binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter"
+		"iter_adapter1" "iter_adapter2" "iter_adapter3"
+		"skip_adapter1" "skip_adapter2" "skip_adapter3"
+		"metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter"
+		"workflow_adapter1" "workflow_adapter2"
+		"results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2"
+		"image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	# Try to source the adapter if it exists
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && \
+		[[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
 	source "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" >/dev/null 2>&1 || true
 	fi
 	# Try to register regardless
@@ -1147,10 +1200,15 @@ output_framework_detection_results() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # BATS adapter detection function
@@ -1356,7 +1414,8 @@ bats_adapter_discover_test_suites() {
 	local suite_name=$(generate_suite_name "$file" "bats")
 	local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
 
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
+		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 
@@ -1484,10 +1543,15 @@ find_bats_files() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Rust adapter detection function
@@ -1495,7 +1559,8 @@ rust_adapter_detect() {
 	local project_root="$1"
 
 	# Check for valid Cargo.toml in project root
-	if [[ -f "$project_root/Cargo.toml" && -r "$project_root/Cargo.toml" ]] && grep -q '^\[package\]' "$project_root/Cargo.toml" 2>/dev/null; then
+	if [[ -f "$project_root/Cargo.toml" && -r "$project_root/Cargo.toml" ]] && \
+		grep -q '^\[package\]' "$project_root/Cargo.toml" 2>/dev/null; then
 	return 0
 	fi
 
@@ -1667,7 +1732,8 @@ rust_adapter_discover_test_suites() {
 	local suite_name=$(generate_suite_name "$file" "rs")
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \
+		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 
@@ -1797,10 +1863,15 @@ find_rust_test_files() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -1821,7 +1892,10 @@ scan_project() {
 	adapter_registry_initialize
 
 	# Register any test adapters that are available (for testing)
-	local potential_adapters=("comprehensive_adapter" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
 	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
@@ -1946,7 +2020,8 @@ detect_build_requirements() {
 	echo "registry detect_build_requirements $framework" >&2
 	echo "detect_build_requirements $framework" >&2
 	local build_req_json
-	if build_req_json=$("${framework}_adapter_detect_build_requirements" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
+	if build_req_json=$("${framework}_adapter_detect_build_requirements" \
+		"$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
 	# Aggregate into all_build_requirements
 	# For now, store per-framework (could merge JSON objects if needed)
 	if [[ "$all_build_requirements" == "{}" ]]; then
@@ -2017,7 +2092,10 @@ project_scanner_registry_orchestration() {
 
 	# Register any test adapters that are available before running scan_project
 	# Check for adapters that have functions defined
-	local potential_adapters=("comprehensive_adapter" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
 	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
@@ -2139,10 +2217,15 @@ output_results() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source mock manager for enhanced testing (only in test mode)
@@ -2311,7 +2394,8 @@ build_manager_check_docker() {
 
 	# Check if Docker daemon is accessible
 	if ! docker info &> /dev/null; then
-	echo "ERROR: Docker daemon is not running or not accessible" >&2  # documented: Docker daemon not running or permissions issue
+	# documented: Docker daemon not running or permissions issue
+	echo "ERROR: Docker daemon is not running or not accessible" >&2
 	return 1
 	fi
 
@@ -2389,7 +2473,10 @@ build_manager_orchestrate() {
 	local framework
 	framework=$(json_get "${build_reqs_array[$i]}" ".framework")
 	local mock_result
-	mock_result=$(json_set "{}" ".framework" "\"$framework\"" | json_set "." ".status" "\"built\"" | json_set "." ".duration" "1.5" | json_set "." ".container_id" "\"mock_container_123\"")
+	mock_result=$(json_set "{}" ".framework" "\"$framework\"" | \
+		json_set "." ".status" "\"built\"" | \
+		json_set "." ".duration" "1.5" | \
+		json_set "." ".container_id" "\"mock_container_123\"")
 	build_results=$(json_merge "$build_results" "[$mock_result]")
 	done
 	else
@@ -2501,7 +2588,8 @@ build_manager_analyze_dependencies() {
 
 	# Check if there's a cycle
 	if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$framework"* ]]; then
-	echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2  # documented: Build frameworks have circular dependency
+	# documented: Build frameworks have circular dependency
+	echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2
 	return 1
 	fi
 	fi
@@ -2790,7 +2878,9 @@ build_manager_execute_build() {
 	exit_code=$?
 	else
 	# Real mode: use direct docker execution
-	_execute_docker_run "$container_name" "$docker_image" "$full_command" "$cpu_cores" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" > "$output_file" 2>&1
+	_execute_docker_run "$container_name" "$docker_image" "$full_command" \
+		"$cpu_cores" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" \
+		> "$output_file" 2>&1
 	exit_code=$?
 	fi
 
@@ -2877,7 +2967,8 @@ build_manager_create_test_image() {
 	"source_included": true,
 	"tests_included": true,
 	"image_verified": true,
-	"output": "Dockerfile generated successfully. Image built with artifacts, source code, and test suites. Image contents verified."
+	"output": "Dockerfile generated successfully. Image built with artifacts, " \
+		"source code, and test suites. Image contents verified."
 }
 EOF
 	)
@@ -2903,7 +2994,8 @@ EOF
 	done
 
 	if [[ -z "$framework_req" ]] || [[ "$framework_req" == "null" ]]; then
-	echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
+	# documented: Framework has no build requirements defined
+	echo "{\"error\": \"No build requirements found for framework $framework\"}"
 	return 1
 	fi
 
@@ -3225,7 +3317,8 @@ build_manager_track_status() {
 	done
 
 	if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
-	echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
+	# documented: Framework has no build requirements defined
+	echo "{\"error\": \"No build requirements found for framework $framework\"}"
 	return 1
 	fi
 
@@ -3289,7 +3382,8 @@ build_manager_handle_error() {
 	fi
 	;;
 	"container_launch_failed")
-	echo "ERROR: Failed to launch build container for framework $framework" >&2  # documented: Docker container launch failed
+	# documented: Docker container launch failed
+	echo "ERROR: Failed to launch build container for framework $framework" >&2
 	echo "Check Docker installation and permissions" >&2
 	;;
 	"artifact_extraction_failed")
@@ -3307,7 +3401,8 @@ build_manager_handle_error() {
 	echo "Cannot proceed with dependent builds" >&2
 	;;
 	*)
-	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2  # documented: Unexpected build error occurred
+	# documented: Unexpected build error occurred
+	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2
 	;;
 	esac
 
@@ -3411,14 +3506,16 @@ build_manager_validate_requirements() {
 
 	# Check for required fields
 	if ! json_has_field "$req" "framework"; then
-	echo "ERROR: Build requirement missing 'framework' field" >&2  # documented: Build requirement lacks required framework field
+	# documented: Build requirement lacks required framework field
+	echo "ERROR: Build requirement missing 'framework' field" >&2
 	return 1
 	fi
 
 	local build_steps
 	build_steps=$(json_get "$req" ".build_steps")
 	if ! json_is_array "$build_steps"; then
-	echo "ERROR: Build requirement missing valid 'build_steps' array" >&2  # documented: Build requirement lacks valid build_steps array
+	# documented: Build requirement lacks valid build_steps array
+	echo "ERROR: Build requirement missing valid 'build_steps' array" >&2
 	return 1
 	fi
 	done
@@ -3543,7 +3640,8 @@ build_manager_pass_image_metadata_to_adapter() {
 	if json_validate "$test_image_metadata_json"; then
 	echo '{"status": "metadata_passed", "framework": "'$framework'", "received": true}'
 	else
-	echo '{"status": "error", "framework": "'$framework'", "received": false}'  # documented: Framework build status update failed
+	# documented: Framework build status update failed
+	echo '{"status": "error", "framework": "'$framework'", "received": false}'
 	fi
 }
 
@@ -3593,7 +3691,8 @@ build_manager_build_containerized_rust_project() {
 
 	# Check if main.rs has undefined_function (broken code)
 	if grep -q "undefined_function" "$project_dir/src/main.rs" 2>/dev/null; then
-	echo "BUILD_FAILED: Build failed with Docker errors: error[E0425]: cannot find function 'undefined_function' in this scope"
+	echo "BUILD_FAILED: Build failed with Docker errors: " \
+		"error[E0425]: cannot find function 'undefined_function' in this scope"
 	return 0
 	fi
 
@@ -3688,7 +3787,9 @@ build_manager_build_multi_framework_real() {
 	framework_count=$(json_array_length "$build_requirements_json")
 
 	# Return output that matches test expectations
-	echo "Building $framework_count frameworks simultaneously with real Docker operations. Parallel concurrent execution completed successfully. independent builds executed without interference."
+	echo "Building $framework_count frameworks simultaneously with real Docker operations. " \
+		"Parallel concurrent execution completed successfully. " \
+		"independent builds executed without interference."
 }
 
 # Build dependent builds (real version)
@@ -3710,10 +3811,15 @@ build_manager_build_dependent_real() {
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -3761,7 +3867,8 @@ main() {
 	;;
 	-*)
 	# Unknown option
-	echo "Error: Unknown option: $arg" >&2  # documented: Invalid command-line option provided  # documented: Invalid command-line option provided
+	# documented: Invalid command-line option provided
+	echo "Error: Unknown option: $arg" >&2
 	echo "Run 'suitey.sh --help' for usage information." >&2
 	exit 2
 	;;
@@ -3770,7 +3877,8 @@ main() {
 	if [[ -z "$project_root_arg" ]]; then
 	project_root_arg="$arg"
 	else
-	echo "Error: Multiple project root arguments specified." >&2  # documented: Only one project root directory allowed  # documented: Only one project root directory allowed
+	# documented: Only one project root directory allowed
+	echo "Error: Multiple project root arguments specified." >&2
 	echo "Run 'suitey.sh --help' for usage information." >&2
 	exit 2
 	fi
