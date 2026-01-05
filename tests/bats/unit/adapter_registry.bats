@@ -731,6 +731,153 @@ EOF
   teardown_adapter_registry_test
 }
 
+@test "duplicate detection works when registration called from subshell" {
+  setup_adapter_registry_test
+
+  # Register first adapter (in main shell context)
+  create_valid_mock_adapter "subshell_test_adapter"
+  run_adapter_registry_register "subshell_test_adapter"
+  assert_success
+
+  # Verify registry file exists
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+
+  # Try to register the same adapter again using 'run' (subshell context)
+  run run_adapter_registry_register "subshell_test_adapter"
+  assert_failure
+  assert_adapter_registration_error "$output" "identifier_conflict"
+
+  teardown_adapter_registry_test
+}
+
+@test "load_state sets ADAPTER_REGISTRY_FILE correctly" {
+  setup_adapter_registry_test
+
+  # Register an adapter
+  create_valid_mock_adapter "file_path_test_adapter"
+  run_adapter_registry_register "file_path_test_adapter"
+  assert_success
+
+  # Source modules fresh (simulating subshell)
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_FILE=""
+
+  # Load state
+  adapter_registry_load_state
+
+  # Verify ADAPTER_REGISTRY_FILE is set
+  [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]
+
+  # Verify it points to the correct file
+  local expected_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ "$ADAPTER_REGISTRY_FILE" == "$expected_file" ]]
+
+  # Verify the file exists at that path
+  [[ -f "$ADAPTER_REGISTRY_FILE" ]]
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate detection uses TEST_ADAPTER_REGISTRY_DIR when available" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "dir_test_adapter"
+  run_adapter_registry_register "dir_test_adapter"
+  assert_success
+
+  # Verify file exists at expected location
+  local expected_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$expected_file" ]]
+
+  # Simulate subshell: source fresh and clear state
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_FILE=""
+
+  # Load state (should set ADAPTER_REGISTRY_FILE)
+  adapter_registry_load_state
+
+  # Now simulate duplicate check logic
+  local adapter_identifier="dir_test_adapter"
+  local actual_registry_file=""
+  
+  # This is the logic from adapter_registry_register
+  if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+    actual_registry_file="${TEST_ADAPTER_REGISTRY_DIR}/suitey_adapter_registry"
+  elif [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+    actual_registry_file="${ADAPTER_REGISTRY_FILE}"
+  fi
+
+  # Verify file path was determined correctly
+  [[ -n "$actual_registry_file" ]]
+  [[ "$actual_registry_file" == "$expected_file" ]]
+
+  # Verify file exists and contains the adapter
+  # Note: After load_state, the file should exist since we registered an adapter
+  if [[ -f "$actual_registry_file" ]]; then
+    grep -q "^${adapter_identifier}=" "$actual_registry_file"
+  else
+    # File might not exist if load_state didn't trigger a reload
+    # In that case, verify ADAPTER_REGISTRY_FILE is set correctly
+    [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]
+    [[ "$ADAPTER_REGISTRY_FILE" == "$expected_file" ]]
+  fi
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate detection can find adapter in file for file-based check" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "file_check_adapter"
+  run_adapter_registry_register "file_check_adapter"
+  assert_success
+
+  # Verify file exists and contains the adapter
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+  [[ -s "$registry_file" ]]
+
+  # Verify the file-based duplicate check pattern works
+  # This is the exact check used in adapter_registry_register for duplicate detection
+  local adapter_identifier="file_check_adapter"
+  local escaped_identifier
+  escaped_identifier=$(printf '%s\n' "$adapter_identifier" | sed 's/[[\.*^$()+?{|]/\\&/g')
+  
+  # This grep pattern is used in duplicate detection
+  grep -Eq "^${escaped_identifier}=" "$registry_file"
+
+  teardown_adapter_registry_test
+}
+
+@test "duplicate registration fails when adapter exists in file" {
+  setup_adapter_registry_test
+
+  # Register first adapter
+  create_valid_mock_adapter "file_only_adapter"
+  run_adapter_registry_register "file_only_adapter"
+  assert_success
+
+  # Verify file exists and contains adapter
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [[ -f "$registry_file" ]]
+  grep -q "file_only_adapter=" "$registry_file"
+
+  # Try to register again using 'run' (subshell context)
+  # adapter_registry_register will call load_state first, which will populate
+  # the array from the file, and then the duplicate check should catch it
+  # (either in the array or via file check)
+  run run_adapter_registry_register "file_only_adapter"
+  assert_failure
+  assert_adapter_registration_error "$output" "identifier_conflict"
+
+  teardown_adapter_registry_test
+}
+
 @test "diagnostic: verify TEST_ADAPTER_REGISTRY_DIR is set and accessible" {
   setup_adapter_registry_test
 

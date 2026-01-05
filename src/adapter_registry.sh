@@ -187,19 +187,22 @@ adapter_registry_load_state() {
 		
 		# Extract registry output (between REGISTRY_START and REGISTRY_END)
 		local registry_output
-		registry_output=$(echo "$reload_data" | sed -n '/^REGISTRY_START$/,/^REGISTRY_END$/p' | sed '1d;$d')
+		registry_output=$(echo "$reload_data" | sed -n '/^REGISTRY_START$/,/^REGISTRY_END$/p' | sed -e '1d' -e '$d')
 		
 		# Extract capabilities output (between CAPABILITIES_START and CAPABILITIES_END)
 		local capabilities_output
-		capabilities_output=$(echo "$reload_data" | sed -n '/^CAPABILITIES_START$/,/^CAPABILITIES_END$/p' | sed '1d;$d')
+		capabilities_output=$(echo "$reload_data" | sed -n '/^CAPABILITIES_START$/,/^CAPABILITIES_END$/p' | sed -e '1d' -e '$d')
 		
 		# Extract order output (between ORDER_START and ORDER_END)
 		local order_output
-		order_output=$(echo "$reload_data" | sed -n '/^ORDER_START$/,/^ORDER_END$/p' | sed '1d;$d')
+		order_output=$(echo "$reload_data" | sed -n '/^ORDER_START$/,/^ORDER_END$/p' | sed -e '1d' -e '$d')
 		
 		# Ensure arrays are declared as global before populating (BATS compatibility)
+		# Unset first to ensure clean state
 		eval "unset ADAPTER_REGISTRY 2>/dev/null || true"
-		eval "declare -g -A ADAPTER_REGISTRY"
+		# Declare as associative array (global scope)
+		declare -g -A ADAPTER_REGISTRY
+		# Clear the array (this preserves the associative type)
 		ADAPTER_REGISTRY=()
 		
 		if [[ "$capabilities_loaded" == "true" ]] || [[ "$switching" == "true" ]]; then
@@ -215,9 +218,17 @@ adapter_registry_load_state() {
 		# Populate registry array from output
 		local registry_count
 		registry_count=$(echo "$registry_output" | head -n 1)
-		if [[ "$registry_count" -gt 0 ]]; then
+		# Validate that registry_count is a valid number
+		if [[ "$registry_count" =~ ^[0-9]+$ ]] && [[ "$registry_count" -gt 0 ]]; then
 			while IFS='=' read -r key value || [[ -n "$key" ]]; do
 				[[ -z "$key" ]] && continue
+				# Skip if key looks like a delimiter or is invalid
+				[[ "$key" == "REGISTRY_START" ]] && continue
+				[[ "$key" == "REGISTRY_END" ]] && continue
+				[[ "$key" == "CAPABILITIES_START" ]] && continue
+				[[ "$key" == "CAPABILITIES_END" ]] && continue
+				[[ "$key" == "ORDER_START" ]] && continue
+				[[ "$key" == "ORDER_END" ]] && continue
 				ADAPTER_REGISTRY["$key"]="$value"
 			done < <(echo "$registry_output" | tail -n +2)
 		fi
@@ -249,6 +260,14 @@ adapter_registry_load_state() {
 		fi
 		
 		_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching" "$actual_capabilities_file"
+		
+		# Ensure ADAPTER_REGISTRY_FILE is set for duplicate detection
+		ADAPTER_REGISTRY_FILE="$actual_registry_file"
+	fi
+	
+	# Always ensure ADAPTER_REGISTRY_FILE is set (even if we didn't reload)
+	if [[ -z "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		ADAPTER_REGISTRY_FILE="$actual_registry_file"
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
@@ -416,22 +435,41 @@ adapter_registry_register() {
 
 	# Check for identifier conflict
 	# Check both in-memory array and file directly (for BATS compatibility)
+	# In BATS subshells, arrays may not persist, so always check file (most reliable)
 	local identifier_exists=false
-	if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-		identifier_exists=true
+	
+	# Determine the registry file path - prioritize TEST_ADAPTER_REGISTRY_DIR for reliability in tests
+	local actual_registry_file=""
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		# Use TEST_ADAPTER_REGISTRY_DIR directly (most reliable in BATS tests)
+		actual_registry_file="${TEST_ADAPTER_REGISTRY_DIR}/suitey_adapter_registry"
+	elif [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		# Use ADAPTER_REGISTRY_FILE if set (from load_state)
+		actual_registry_file="${ADAPTER_REGISTRY_FILE}"
 	else
-		# Also check file directly in case array wasn't loaded correctly in BATS subshell
+		# Fallback: determine file locations
 		local file_paths
 		file_paths=$(_adapter_registry_determine_file_locations)
 		local file_paths_array
 		mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
-		local actual_registry_file="${file_paths_array[0]}"
-		if [[ -f "$actual_registry_file" ]]; then
-			# Check if identifier exists in file (key is before first '=')
-			if grep -q "^${adapter_identifier}=" "$actual_registry_file" 2>/dev/null; then
-				identifier_exists=true
-			fi
+		actual_registry_file="${file_paths_array[0]}"
+	fi
+	
+	# Check file first (most reliable in BATS subshells)
+	if [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
+		# Check if identifier exists in file (key is before first '=')
+		# Use grep with -E for regex to properly anchor to start of line
+		# Escape the identifier to avoid regex special characters
+		local escaped_identifier
+		escaped_identifier=$(printf '%s\n' "$adapter_identifier" | sed 's/[[\.*^$()+?{|]/\\&/g')
+		if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
+			identifier_exists=true
 		fi
+	fi
+	
+	# Also check in-memory array (in case file check didn't find it but array has it)
+	if [[ "$identifier_exists" != "true" ]] && [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
+		identifier_exists=true
 	fi
 	
 	if [[ "$identifier_exists" == "true" ]]; then
@@ -457,6 +495,15 @@ adapter_registry_register() {
 	fi
 
 	# Store adapter metadata
+	# Ensure ADAPTER_REGISTRY is declared as associative array (BATS compatibility)
+	# This is necessary because load_state might have cleared it, and in some contexts
+	# the array type might not be preserved
+	if ! declare -p ADAPTER_REGISTRY 2>/dev/null | grep -q '\-A'; then
+		# Array is not associative or doesn't exist, declare it
+		eval "unset ADAPTER_REGISTRY 2>/dev/null || true"
+		declare -g -A ADAPTER_REGISTRY
+	fi
+	
 	ADAPTER_REGISTRY["$adapter_identifier"]="$metadata_json"
 
 	# Index capabilities

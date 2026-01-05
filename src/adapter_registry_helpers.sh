@@ -151,9 +151,24 @@ _adapter_registry_decode_value() {
 _adapter_registry_save_array_to_file() {
 	local array_name="$1"
 	local file_path="$2"
+	local dir_path
+	dir_path=$(dirname "$file_path")
 
 	# Get the array reference dynamically
 	local -n array_ref="$array_name"
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for registry file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
 
 	# Create/truncate file with error checking using touch + verify
 	if ! touch "$file_path" 2>&1 || [[ ! -f "$file_path" ]]; then
@@ -255,6 +270,21 @@ _adapter_registry_load_array_from_file() {
 # Helper: Save order array to file
 _adapter_registry_save_order() {
 	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for order file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
 
 	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$file_path" 2>&1; then
 		echo "ERROR: Failed to write order file: $file_path" >&2  # documented: Order file write failed
@@ -266,6 +296,21 @@ _adapter_registry_save_order() {
 # Helper: Save initialized flag to file
 _adapter_registry_save_initialized() {
 	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for init file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
 
 	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$file_path" 2>&1; then
 		echo "ERROR: Failed to write init file: $file_path" >&2

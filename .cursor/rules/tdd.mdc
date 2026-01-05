@@ -1,0 +1,5 @@
+---
+alwaysApply: false
+---
+Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user.
+If there is a problem, first check relevant environment tests, then relevant unit tests, then relevant integration tests, then finally end to end tests.
