@@ -748,6 +748,8 @@ EOF
 
 	_adapter_registry_save_array_to_file "test_registry" "$registry_file"
 	_adapter_registry_save_array_to_file "test_capabilities" "$capabilities_file"
+	# Set ADAPTER_REGISTRY_ORDER before saving
+	ADAPTER_REGISTRY_ORDER=("${test_order[@]}")
 	_adapter_registry_save_order "$order_file"
 
 	# Set up some existing data in memory (should be cleared)

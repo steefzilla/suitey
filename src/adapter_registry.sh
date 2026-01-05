@@ -116,18 +116,32 @@ _adapter_registry_perform_reload() {
 	fi
 	ADAPTER_REGISTRY_ORDER=()
 
-	# Load arrays from files using return-data pattern
+	# Load arrays from files using return-data pattern (manual population for BATS compatibility)
 	local registry_output
 	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
 	local registry_count
-	registry_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY" "$registry_output")
+	registry_count=$(echo "$registry_output" | head -n 1)
+	# Manually populate registry array from output
+	if [[ "$registry_count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			ADAPTER_REGISTRY["$key"]="$value"
+		done < <(echo "$registry_output" | tail -n +2)
+	fi
 
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
 		local capabilities_output
 		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
 		local loaded_count
-		loaded_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY_CAPABILITIES" "$capabilities_output")
+		loaded_count=$(echo "$capabilities_output" | head -n 1)
+		# Manually populate capabilities array from output
+		if [[ "$loaded_count" -gt 0 ]]; then
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+			done < <(echo "$capabilities_output" | tail -n +2)
+		fi
 		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
 
