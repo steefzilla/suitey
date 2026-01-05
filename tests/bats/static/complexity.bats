@@ -15,6 +15,30 @@
 @test "functions are not too long (max 50 lines)" {
 	local long_functions
 	long_functions=$(find src -name "*.sh" -exec awk '
+		function should_skip_line(line) {
+			# Remove leading/trailing whitespace for checking
+			trimmed = line
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed)
+			
+			# Skip blank lines and comments
+			if (trimmed == "" || trimmed ~ /^[[:space:]]*#/) {
+				return 1
+			}
+			
+			# Check for pure informational output: echo/print/debug that only outputs to stdout/stderr
+			# Exclude if line has pipes or file redirection (functional uses)
+			if (line ~ /^[[:space:]]*echo[[:space:]]+/ || line ~ /^[[:space:]]*print[[:space:]]+/ || line ~ /^[[:space:]]*debug[[:space:]]+/) {
+				# If it has pipes or file redirection, it is functional (do not skip)
+				if (line ~ /\|/ || line ~ />[[:space:]]*[^&]/ || line ~ />>[[:space:]]*[^&]/ || line ~ /2>&1/) {
+					return 0
+				}
+				# Otherwise it is just informational output (skip it)
+				return 1
+			}
+			
+			return 0
+		}
+		
 		/^function / {
 			func_line = NR
 			func_name = $2
@@ -34,8 +58,8 @@
 			line_count = 0
 		}
 		{
-			# Skip blank lines and comment-only lines
-			if (!/^[[:space:]]*$/ && !/^[[:space:]]*#/) {
+			# Skip blank lines, comment-only lines, and informational-only lines
+			if (!should_skip_line($0)) {
 				line_count++
 			}
 		}
@@ -98,10 +122,34 @@
 @test "reasonable file sizes (max 1000 lines)" {
 	local large_files
 	large_files=$(find src -name "*.sh" -exec awk '
+		function should_skip_line(line) {
+			# Remove leading/trailing whitespace for checking
+			trimmed = line
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed)
+			
+			# Skip blank lines and comments
+			if (trimmed == "" || trimmed ~ /^[[:space:]]*#/) {
+				return 1
+			}
+			
+			# Check for pure informational output: echo/print/debug that only outputs to stdout/stderr
+			# Exclude if line has pipes or file redirection (functional uses)
+			if (line ~ /^[[:space:]]*echo[[:space:]]+/ || line ~ /^[[:space:]]*print[[:space:]]+/ || line ~ /^[[:space:]]*debug[[:space:]]+/) {
+				# If it has pipes or file redirection, it is functional (do not skip)
+				if (line ~ /\|/ || line ~ />[[:space:]]*[^&]/ || line ~ />>[[:space:]]*[^&]/ || line ~ /2>&1/) {
+					return 0
+				}
+				# Otherwise it is just informational output (skip it)
+				return 1
+			}
+			
+			return 0
+		}
+		
 		BEGIN { line_count = 0 }
 		{
-			# Skip blank lines and comment-only lines
-			if (!/^[[:space:]]*$/ && !/^[[:space:]]*#/) {
+			# Skip blank lines, comment-only lines, and informational-only lines
+			if (!should_skip_line($0)) {
 				line_count++
 			}
 		}

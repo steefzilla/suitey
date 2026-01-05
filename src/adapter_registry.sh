@@ -116,13 +116,18 @@ _adapter_registry_perform_reload() {
 	fi
 	ADAPTER_REGISTRY_ORDER=()
 
-	# Load arrays from files
-	_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file" >/dev/null
+	# Load arrays from files using return-data pattern
+	local registry_output
+	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
+	local registry_count
+	registry_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY" "$registry_output")
 
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_output
+		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
 		local loaded_count
-		loaded_count=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		loaded_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY_CAPABILITIES" "$capabilities_output")
 		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
 

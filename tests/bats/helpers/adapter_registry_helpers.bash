@@ -17,6 +17,30 @@ fi
 
 source "$adapter_registry_helpers_script"
 
+# Find and source json_helpers.sh (needed by adapter_registry.sh)
+json_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+else
+  json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+fi
+
+source "$json_helpers_script"
+
+# Find and source adapter_registry.sh (needed for adapter_registry_index_capabilities)
+adapter_registry_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh" ]]; then
+  adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
+  adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
+else
+  adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
+fi
+
+source "$adapter_registry_script"
+
 # ============================================================================
 # JSON Helper Functions (for test assertions)
 # ============================================================================

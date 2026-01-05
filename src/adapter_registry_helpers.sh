@@ -18,6 +18,59 @@
 # Helper Functions
 # ============================================================================
 
+# ============================================================================
+# Return-Data Pattern Helper Function
+# ============================================================================
+#
+# Helper function to populate an associative array from return-data format
+# This is a reusable pattern for functions that return data instead of modifying
+# arrays directly (to avoid BATS scoping issues).
+#
+# PATTERN: Return-Data Approach
+# This helper implements the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, functions return data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Arguments:
+#   array_name: Name of associative array to populate
+#   output: Output from a return-data function (first line is count, rest are key=value)
+# Returns:
+#   Populates the named array and returns the count
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(_adapter_registry_populate_array_from_output "array_name" "$output")
+_adapter_registry_populate_array_from_output() {
+	local array_name="$1"
+	local output="$2"
+	
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	# Populate array from remaining lines (only if count > 0)
+	if [[ "$count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			eval "${array_name}[\"$key\"]=\"$value\""
+		done < <(echo "$output" | tail -n +2)
+	fi
+	
+	echo "$count"
+	return 0
+}
+
 # Helper: Determine the base directory for registry files
 _adapter_registry_determine_base_dir() {
 	# Determine the base directory - prioritize TEST_ADAPTER_REGISTRY_DIR if set
@@ -123,12 +176,39 @@ _adapter_registry_save_array_to_file() {
 }
 
 # Helper: Load an associative array from a file with base64 decoding
+#
+# PATTERN: Return-Data Approach
+# This function uses the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Returns: first line is count, subsequent lines are key=value pairs (decoded)
+# Caller should read first line for count, then process remaining lines to populate array
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(echo "$output" | head -n 1)
+#   if [[ "$count" -gt 0 ]]; then
+#     while IFS='=' read -r key value || [[ -n "$key" ]]; do
+#       [[ -z "$key" ]] && continue
+#       array["$key"]="$value"
+#     done < <(echo "$output" | tail -n +2)
+#   fi
 _adapter_registry_load_array_from_file() {
 	local array_name="$1"
 	local file_path="$2"
-
-	# Get the array reference dynamically
-	local -n array_ref="$array_name"
 
 	if [[ ! -f "$file_path" ]]; then
 		echo "0"
@@ -136,28 +216,39 @@ _adapter_registry_load_array_from_file() {
 	fi
 
 	local loaded_count=0
+	local line_key
+	local line_encoded_value
+	local output_lines=""
+	
+	# Process file and build output
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		# Skip empty lines
 		[[ -z "$line" ]] && continue
 
 		# Split on first '=' only (since base64 can contain '=')
-		key="${line%%=*}"
-		encoded_value="${line#*=}"
+		line_key="${line%%=*}"
+		line_encoded_value="${line#*=}"
 
 		# Skip malformed entries
-		if [[ -n "$key" ]] && [[ -n "$encoded_value" ]]; then
+		if [[ -n "$line_key" ]] && [[ -n "$line_encoded_value" ]]; then
 			local decoded_value
-			if decoded_value=$(_adapter_registry_decode_value "$encoded_value") && [[ -n "$decoded_value" ]]; then
-				array_ref["$key"]="$decoded_value"
-				((loaded_count++))
+			local decode_exit
+			decoded_value=$(_adapter_registry_decode_value "$line_encoded_value" 2>/dev/null)
+			decode_exit=$?
+			if [[ $decode_exit -eq 0 ]] && [[ -n "$decoded_value" ]]; then
+				# Buffer the output
+				output_lines+="${line_key}=${decoded_value}"$'\n'
+				loaded_count=$((loaded_count + 1))
 			else
 				# documented: Base64 decode failed, skipping corrupted registry entry
-				echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
+				echo "WARNING: Failed to decode base64 value for key '$line_key', skipping entry" >&2
 			fi
 		fi
 	done < "$file_path"
 
+	# Output count first, then data
 	echo "$loaded_count"
+	echo -n "$output_lines"
 	return 0
 }
 
@@ -320,13 +411,18 @@ _adapter_registry_perform_reload() {
 	fi
 	ADAPTER_REGISTRY_ORDER=()
 
-	# Load arrays from files
-	_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file" >/dev/null
+	# Load arrays from files using return-data pattern
+	local registry_output
+	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
+	local registry_count
+	registry_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY" "$registry_output")
 
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_output
+		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
 		local loaded_count
-		loaded_count=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		loaded_count=$(_adapter_registry_populate_array_from_output "ADAPTER_REGISTRY_CAPABILITIES" "$capabilities_output")
 		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
 

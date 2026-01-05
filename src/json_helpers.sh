@@ -226,29 +226,41 @@ json_is_object() {
 # Convert a JSON array to a Bash array
 # Arguments:
 #   json: JSON array string
-#   var_name: Name of Bash array variable to populate
 # Returns:
-#   Sets the named array variable, returns 0 on success
+#   Returns: first line = count, subsequent lines = array elements (one per line)
+#
+# PATTERN: Return-Data Approach
+# This function uses the return-data pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array using json_populate_array_from_output().
+#
+# Usage example:
+#   output=$(json_to_array "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
 json_to_array() {
 	local json="$1"
-	local var_name="$2"
 
-	if [[ -z "$json" ]] || [[ -z "$var_name" ]]; then
-	return 1
+	if [[ -z "$json" ]]; then
+		echo "0"
+		return 1
 	fi
 
-	# Use nameref to set the caller's variable
-	local -n arr="$var_name"
+	# Validate input and get elements
+	local elements
+	if ! elements=$(echo "$json" | jq -r '.[]' 2>/dev/null); then
+		echo "0"
+		return 1
+	fi
 
-	# Clear the array
-	arr=()
+	# Count elements
+	local count
+	count=$(echo "$elements" | wc -l | tr -d ' ')
 
-	# Read array elements
-	while IFS= read -r element; do
-	arr+=("$element")
-	done < <(echo "$json" | jq -r '.[]' 2>/dev/null)
+	# Output count first, then elements
+	echo "$count"
+	echo "$elements"
 
-	return $?
+	return 0
 }
 
 # Convert a Bash array to JSON array
@@ -256,6 +268,10 @@ json_to_array() {
 #   var_name: Name of Bash array variable
 # Returns:
 #   JSON array string
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
 array_to_json() {
 	local var_name="$1"
 
@@ -284,6 +300,10 @@ array_to_json() {
 #   var_name: Name of Bash associative array variable
 # Returns:
 #   JSON object string
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read associative array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
 assoc_array_to_json() {
 	local var_name="$1"
 
@@ -337,41 +357,101 @@ json_escape() {
 # Convert build requirements JSON to Bash array structure
 # Arguments:
 #   json: Build requirements JSON array
-#   var_name: Name of Bash array variable to populate
 # Returns:
-#   Populates array with JSON strings for each framework requirement
+#   Returns: first line = count, subsequent lines = JSON requirement strings
+#
+# PATTERN: Return-Data Approach
+# This function uses the return-data pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array using json_populate_array_from_output().
+#
+# Usage example:
+#   output=$(build_requirements_json_to_array "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
 build_requirements_json_to_array() {
 	local json="$1"
-	local var_name="$2"
 
-	if [[ -z "$json" ]] || [[ -z "$var_name" ]]; then
-	return 1
+	if [[ -z "$json" ]]; then
+		echo "0"
+		return 1
 	fi
 
 	# Validate input
 	if ! json_validate "$json" || ! json_is_array "$json"; then
-	return 1
+		echo "0"
+		return 1
 	fi
-
-	# Use nameref to set the caller's variable
-	local -n arr="$var_name"
-
-	# Clear the array
-	arr=()
 
 	# Get array length
-	local count
-	count=$(json_array_length "$json")
+	local total_count
+	total_count=$(json_array_length "$json")
 
-	# Extract each requirement
-	for ((i=0; i<count; i++)); do
-	local req_json
-	req_json=$(json_array_get "$json" "$i")
-	if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
-	arr[$i]="$req_json"
-	fi
+	# Count and output non-null requirements
+	local count=0
+	for ((i=0; i<total_count; i++)); do
+		local req_json
+		req_json=$(json_array_get "$json" "$i")
+		if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
+			((count++))
+		fi
 	done
 
+	# Output count first
+	echo "$count"
+
+	# Extract each requirement and output (compacted to single line)
+	for ((i=0; i<total_count; i++)); do
+		local req_json
+		req_json=$(json_array_get "$json" "$i")
+		if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
+			# Compact JSON to single line for easier parsing
+			echo "$req_json" | jq -c .
+		fi
+	done
+
+	return 0
+}
+
+# ============================================================================
+# Return-Data Pattern Helper Function
+# ============================================================================
+#
+# Helper function to populate a Bash array from return-data format
+# This is a reusable pattern for functions that return data instead of modifying
+# arrays directly (to avoid BATS scoping issues).
+#
+# Arguments:
+#   array_name: Name of Bash array variable to populate
+#   output: Output from a return-data function (first line is count, rest are array elements)
+# Returns:
+#   Populates the named array and returns the count
+#
+# Usage example:
+#   output=$(_json_to_array_return_data "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
+json_populate_array_from_output() {
+	local array_name="$1"
+	local output="$2"
+
+	local count
+	count=$(echo "$output" | head -n 1)
+
+	# Populate array from remaining lines (only if count > 0)
+	if [[ "$count" -gt 0 ]]; then
+		# Use nameref to modify the caller's array
+		local -n arr="$array_name"
+		# Clear the array first
+		arr=()
+		# Populate from remaining lines
+		local idx=0
+		while IFS= read -r element || [[ -n "$element" ]]; do
+			[[ -z "$element" ]] && continue
+			arr[$idx]="$element"
+			((idx++))
+		done < <(echo "$output" | tail -n +2)
+	fi
+
+	echo "$count"
 	return 0
 }
 
@@ -380,6 +460,10 @@ build_requirements_json_to_array() {
 #   var_name: Name of associative array variable
 # Returns:
 #   JSON object with tier information
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read associative array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
 dependency_analysis_array_to_json() {
 	local var_name="$1"
 
