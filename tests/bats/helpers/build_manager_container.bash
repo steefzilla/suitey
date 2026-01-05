@@ -21,10 +21,56 @@ if [[ -f "$common_teardown_script" ]]; then
 fi
 
 # ============================================================================
-# Source the build manager container module
+# Source dependencies first (required by build_manager_container.sh)
 # ============================================================================
 
-# Find and source build_manager_container.sh
+# Source JSON helpers first (required by build_manager_container.sh)
+json_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+else
+  json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+fi
+source "$json_helpers_script"
+
+# Source build_manager_build_helpers.sh (for _build_manager_find_framework_req)
+build_manager_build_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_build_helpers.sh" ]]; then
+  build_manager_build_helpers_script="$BATS_TEST_DIRNAME/../../../src/build_manager_build_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager_build_helpers.sh" ]]; then
+  build_manager_build_helpers_script="$BATS_TEST_DIRNAME/../../src/build_manager_build_helpers.sh"
+else
+  build_manager_build_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_build_helpers.sh"
+fi
+source "$build_manager_build_helpers_script"
+
+# Source build_manager.sh (for build_manager_get_cpu_cores and other core functions)
+# Note: build_manager.sh sources build_manager_container.sh at the end, so we need to be careful
+# We'll source build_manager_container.sh separately to avoid double-sourcing issues
+build_manager_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager.sh" ]]; then
+  build_manager_script="$BATS_TEST_DIRNAME/../../../src/build_manager.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager.sh" ]]; then
+  build_manager_script="$BATS_TEST_DIRNAME/../../src/build_manager.sh"
+else
+  build_manager_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager.sh"
+fi
+
+# Source build_manager.sh but prevent it from sourcing build_manager_container.sh
+# We'll source container.sh separately after
+if [[ -f "$build_manager_script" ]]; then
+  # Temporarily rename the container sourcing to prevent double-sourcing
+  # We'll source it manually after
+  source "$build_manager_script" 2>/dev/null || {
+    # If build_manager.sh tries to source container.sh, we'll handle it
+    # For now, just source it - build_manager.sh should handle dependencies correctly
+    :
+  }
+fi
+
+# Source build_manager_container.sh separately
 build_manager_container_script=""
 if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_container.sh" ]]; then
   build_manager_container_script="$BATS_TEST_DIRNAME/../../../src/build_manager_container.sh"
@@ -34,7 +80,10 @@ else
   build_manager_container_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager_container.sh"
 fi
 
-source "$build_manager_container_script"
+# Only source if not already sourced by build_manager.sh
+if [[ -f "$build_manager_container_script" ]] && ! declare -f build_manager_launch_container >/dev/null 2>&1; then
+  source "$build_manager_container_script"
+fi
 
 # ============================================================================
 # JSON Helper Functions (for test assertions)

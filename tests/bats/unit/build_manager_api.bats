@@ -252,3 +252,103 @@ load ../helpers/build_manager_api
 	teardown_build_manager_api_test
 }
 
+# ============================================================================
+# Dependency Sourcing Regression Tests
+# ============================================================================
+
+@test "build_manager_process_adapter_build_steps requires json_get function (dependency check)" {
+	# This test ensures json_get is available (catches missing json_helpers.sh sourcing)
+	setup_build_manager_api_test
+
+	local build_reqs='[{"framework":"test","build_steps":[{"docker_image":"alpine"}]}]'
+
+	# Function should work - if json_get is missing, this will fail
+	run build_manager_process_adapter_build_steps "$build_reqs" "test"
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+
+	teardown_build_manager_api_test
+}
+
+@test "build_manager_process_adapter_build_steps returns compact JSON format" {
+	# This test ensures the fix: using jq -c for compact JSON (not pretty-printed)
+	setup_build_manager_api_test
+
+	local build_reqs='[{"framework":"test","build_steps":[{"docker_image":"alpine","cpu_cores":2}]}]'
+
+	run build_manager_process_adapter_build_steps "$build_reqs" "test"
+	[ "$status" -eq 0 ]
+	
+	# Output should be compact (no newlines, single line)
+	local line_count
+	line_count=$(echo "$output" | wc -l)
+	[ "$line_count" -eq 1 ]
+	
+	# Should be valid compact JSON
+	echo "$output" | jq . >/dev/null 2>&1
+	[ $? -eq 0 ]
+
+	teardown_build_manager_api_test
+}
+
+@test "build_manager_coordinate_with_project_scanner suppresses stderr output" {
+	# This test ensures error messages don't pollute JSON output
+	setup_build_manager_api_test
+
+	# Invalid JSON should return error JSON without stderr pollution
+	run build_manager_coordinate_with_project_scanner 'invalid_json'
+	[ "$status" -eq 0 ]
+	
+	# Output should be clean JSON only (no error messages)
+	[ "$output" = '{"status": "error", "ready": false}' ]
+	
+	# Should be valid JSON
+	echo "$output" | jq . >/dev/null 2>&1
+	[ $? -eq 0 ]
+
+	teardown_build_manager_api_test
+}
+
+@test "build_manager_create_test_image_from_artifacts mocks Docker in test mode" {
+	# This test ensures Docker is mocked in unit test mode
+	setup_build_manager_api_test
+
+	local project_dir="/tmp/artifact_test_regression"
+	mkdir -p "$project_dir/target"
+
+	# Should succeed without real Docker (mocked in test mode)
+	run build_manager_create_test_image_from_artifacts "$project_dir" "alpine:latest" "test_image"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *'"success": true'* ]]
+	
+	# Verify it's valid JSON
+	echo "$output" | jq . >/dev/null 2>&1
+	[ $? -eq 0 ]
+
+	rm -rf "$project_dir"
+	teardown_build_manager_api_test
+}
+
+@test "build_manager_api helper sources all required dependencies" {
+	# This test verifies that all required functions are available after loading the helper
+	# This catches missing dependency sourcing issues
+	
+	# Verify json_get is available
+	command -v json_get >/dev/null 2>&1 || {
+		echo "ERROR: json_get function not found - json_helpers.sh not sourced"
+		return 1
+	}
+	
+	# Verify build_manager_validate_requirements is available
+	command -v build_manager_validate_requirements >/dev/null 2>&1 || {
+		echo "ERROR: build_manager_validate_requirements not found - build_manager.sh not sourced"
+		return 1
+	}
+	
+	# Verify build_manager_process_adapter_build_steps is available
+	command -v build_manager_process_adapter_build_steps >/dev/null 2>&1 || {
+		echo "ERROR: build_manager_process_adapter_build_steps not found - build_manager_integration.sh not sourced"
+		return 1
+	}
+}
+

@@ -50,6 +50,41 @@ _source_rust_adapter_and_build_manager() {
   source "$build_manager_script"
 }
 
+_source_bats_adapter_and_build_manager() {
+  # Find and source json_helpers.sh (needed by multiple modules)
+  local json_helpers_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+    json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+  else
+    json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+  fi
+  source "$json_helpers_script"
+
+  # Find and source adapters/bats.sh
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  # Find and source build_manager.sh and its dependencies
+  local build_manager_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager.sh" ]]; then
+    build_manager_script="$BATS_TEST_DIRNAME/../../../src/build_manager.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager.sh" ]]; then
+    build_manager_script="$BATS_TEST_DIRNAME/../../src/build_manager.sh"
+  else
+    build_manager_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager.sh"
+  fi
+  source "$build_manager_script"
+}
+
 # ============================================================================
 # Build Manager Interface Tests
 # ============================================================================
@@ -127,9 +162,8 @@ _source_rust_adapter_and_build_manager() {
 @test "bats_adapter_get_build_steps returns empty array" {
   setup_adapter_registry_test
 
-  # Source the bats adapter
-  # Source the rust adapter and build manager modules
-  _source_rust_adapter_and_build_manager
+  # Source the bats adapter and build manager modules
+  _source_bats_adapter_and_build_manager
 
   # Create a temporary project root
   local temp_project=$(mktemp -d)
@@ -198,9 +232,8 @@ _source_rust_adapter_and_build_manager() {
 @test "bats_adapter_execute_test_suite accepts test_image parameter" {
   setup_adapter_registry_test
 
-  # Source the bats adapter
-  # Source the rust adapter and build manager modules
-  _source_rust_adapter_and_build_manager
+  # Source the bats adapter and build manager modules
+  _source_bats_adapter_and_build_manager
 
   # Create mock test suite and test image (can be empty for BATS)
   local test_suite='{"name": "test_suite", "framework": "bats", "test_files": ["test.bats"], "metadata": {}, "execution_config": {}}'
@@ -220,9 +253,8 @@ _source_rust_adapter_and_build_manager() {
 @test "bats_adapter_execute_test_suite returns test_image in result" {
   setup_adapter_registry_test
 
-  # Source the bats adapter
-  # Source the rust adapter and build manager modules
-  _source_rust_adapter_and_build_manager
+  # Source the bats adapter and build manager modules
+  _source_bats_adapter_and_build_manager
 
   # Create mock test suite and test image (can be empty for BATS)
   local test_suite='{"name": "test_suite", "framework": "bats", "test_files": ["test.bats"], "metadata": {}, "execution_config": {}}'
@@ -292,9 +324,8 @@ _source_rust_adapter_and_build_manager() {
 @test "bats_adapter_execute_test_suite returns valid JSON structure" {
   setup_adapter_registry_test
 
-  # Source the bats adapter
-  # Source the rust adapter and build manager modules
-  _source_rust_adapter_and_build_manager
+  # Source the bats adapter and build manager modules
+  _source_bats_adapter_and_build_manager
 
   # Create mock test suite and test image (can be empty for BATS)
   local test_suite='{"name": "test_suite", "framework": "bats", "test_files": ["test.bats"], "metadata": {}, "execution_config": {}}'
