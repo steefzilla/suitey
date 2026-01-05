@@ -551,3 +551,4 @@ _detect_circular_dependencies() {
 
 	return 1  # No circular dependencies
 }
+

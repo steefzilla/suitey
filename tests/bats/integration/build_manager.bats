@@ -31,7 +31,7 @@ _source_build_manager_modules() {
     build_manager_script="$BATS_TEST_DIRNAME/../../../src/build_manager.sh"
   elif [[ -f "$BATS_TEST_DIRNAME/../../src/build_manager.sh" ]]; then
     build_manager_script="$BATS_TEST_DIRNAME/../../src/build_manager.sh"
-  else
+else
     build_manager_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/build_manager.sh"
   fi
   source "$build_manager_script"

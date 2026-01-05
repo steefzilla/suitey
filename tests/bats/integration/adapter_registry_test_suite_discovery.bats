@@ -42,7 +42,7 @@ _source_integration_modules() {
     adapter_registry_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry.sh"
   elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry.sh" ]]; then
     adapter_registry_script="$BATS_TEST_DIRNAME/../../src/adapter_registry.sh"
-  else
+else
     adapter_registry_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry.sh"
   fi
   source "$adapter_registry_script"

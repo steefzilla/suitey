@@ -143,8 +143,12 @@ teardown_build_manager_test() {
   rm -f /tmp/async_operation_* 2>/dev/null || true
   # Clean up environment simulation files
   rm -f /tmp/mock_* 2>/dev/null || true
-  # Clean up any test directories that might be left
-  find /tmp -maxdepth 1 -name "suitey_build_manager_test_*" -type d -exec rm -rf {} + 2>/dev/null \; || true
+  # REMOVED: Aggressive cleanup that deletes other parallel tests' directories
+  # This was causing race conditions where one test's teardown would delete
+  # directories that other parallel tests were still using.
+  # If orphaned directories need cleanup, it should be done at the end of the
+  # test suite, not during individual test teardown.
+  # find /tmp -maxdepth 1 -name "suitey_build_manager_test_*" -type d -exec rm -rf {} + 2>/dev/null \; || true
 
   # Reset mock manager
   mock_manager_reset 2>/dev/null || true

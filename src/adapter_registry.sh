@@ -39,12 +39,14 @@ ADAPTER_REGISTRY_INITIALIZED=false            # Tracks whether registry has been
 ADAPTER_REGISTRY_ORDER=()                     # Preserves registration order
 
 # Registry Persistence (for testing)
-# Use test directory if available, otherwise use tmp
-REGISTRY_BASE_DIR="${TEST_ADAPTER_REGISTRY_DIR:-${TMPDIR:-/tmp}}"
-ADAPTER_REGISTRY_FILE="$REGISTRY_BASE_DIR/suitey_adapter_registry"
-ADAPTER_REGISTRY_CAPABILITIES_FILE="$REGISTRY_BASE_DIR/suitey_adapter_capabilities"
-ADAPTER_REGISTRY_ORDER_FILE="$REGISTRY_BASE_DIR/suitey_adapter_order"
-ADAPTER_REGISTRY_INIT_FILE="$REGISTRY_BASE_DIR/suitey_adapter_init"
+# These variables are computed dynamically when needed to avoid race conditions
+# in parallel test execution. They should NOT be initialized at module load time
+# because TEST_ADAPTER_REGISTRY_DIR may not be set yet.
+REGISTRY_BASE_DIR=""
+ADAPTER_REGISTRY_FILE=""
+ADAPTER_REGISTRY_CAPABILITIES_FILE=""
+ADAPTER_REGISTRY_ORDER_FILE=""
+ADAPTER_REGISTRY_INIT_FILE=""
 
 # ============================================================================
 # Adapter Registry Functions
@@ -206,9 +208,9 @@ adapter_registry_load_state() {
 		ADAPTER_REGISTRY=()
 		
 		# Always ensure ADAPTER_REGISTRY_CAPABILITIES is declared (BATS compatibility)
-		eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
-		eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
-		ADAPTER_REGISTRY_CAPABILITIES=()
+			eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
+			eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
+			ADAPTER_REGISTRY_CAPABILITIES=()
 		
 		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
 		eval "declare -g -a ADAPTER_REGISTRY_ORDER"
@@ -375,10 +377,20 @@ adapter_registry_load_state() {
 
 # Clean up registry state files
 adapter_registry_cleanup_state() {
-	rm -f "$ADAPTER_REGISTRY_FILE" \
-		"$ADAPTER_REGISTRY_CAPABILITIES_FILE" \
-		"$ADAPTER_REGISTRY_ORDER_FILE" \
-		"$ADAPTER_REGISTRY_INIT_FILE"
+	# Compute file paths dynamically to avoid using stale values from module load time
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local registry_file="${file_paths_array[0]}"
+	local capabilities_file="${file_paths_array[1]}"
+	local order_file="${file_paths_array[2]}"
+	local init_file="${file_paths_array[3]}"
+	
+	rm -f "$registry_file" \
+		"$capabilities_file" \
+		"$order_file" \
+		"$init_file"
 }
 
 # Initialize/load registry state
@@ -552,15 +564,15 @@ adapter_registry_register() {
 	
 	# Check file first (most reliable in BATS subshells)
 	if [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
-		# Check if identifier exists in file (key is before first '=')
+			# Check if identifier exists in file (key is before first '=')
 		# Use grep with -E for regex to properly anchor to start of line
 		# Escape the identifier to avoid regex special characters
 		local escaped_identifier
 		escaped_identifier=$(printf '%s\n' "$adapter_identifier" | sed 's/[[\.*^$()+?{|]/\\&/g')
 		if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
-			identifier_exists=true
+				identifier_exists=true
+			fi
 		fi
-	fi
 	
 	# Also check in-memory array (in case file check didn't find it but array has it)
 	if [[ "$identifier_exists" != "true" ]] && [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
@@ -700,8 +712,41 @@ adapter_registry_is_registered() {
 adapter_registry_initialize() {
 	adapter_registry_load_state
 
-	# Check if already initialized
-	if [[ "$ADAPTER_REGISTRY_INITIALIZED" == "true" ]]; then
+	# Determine the actual init file path for THIS test's directory
+	# This ensures each test checks its own initialization state, not a shared global
+	local file_paths
+	file_paths=$(_adapter_registry_determine_file_locations)
+	local file_paths_array
+	mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+	local actual_init_file="${file_paths_array[3]}"
+
+	# Check initialization status from THIS test's file, not global variable
+	# This prevents parallel tests from seeing each other's initialization state
+	local is_initialized=false
+	if [[ -f "$actual_init_file" ]]; then
+		local init_status
+		init_status=$(<"$actual_init_file" 2>/dev/null || echo "false")
+		[[ "$init_status" == "true" ]] && is_initialized=true
+	fi
+
+	# Also check if adapters are already registered (defensive check)
+	# This handles the case where adapters were registered but init file wasn't written
+	if [[ "$is_initialized" != "true" ]]; then
+		local adapters_registered=0
+		for adapter in "bats" "rust"; do
+			if [[ -v ADAPTER_REGISTRY["$adapter"] ]]; then
+				adapters_registered=$((adapters_registered + 1))
+			fi
+		done
+		# If both adapters are registered, consider it initialized
+		if [[ $adapters_registered -eq 2 ]]; then
+			is_initialized=true
+		fi
+	fi
+
+	if [[ "$is_initialized" == "true" ]]; then
+		# Update global variable to match file state (for consistency)
+		ADAPTER_REGISTRY_INITIALIZED=true
 	return 0
 	fi
 
@@ -720,6 +765,8 @@ adapter_registry_initialize() {
 	fi
 	done
 
+	# Write initialization status to THIS test's init file
+	# This ensures each test has its own initialization state
 	ADAPTER_REGISTRY_INITIALIZED=true
 	adapter_registry_save_state
 	return 0

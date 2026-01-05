@@ -141,3 +141,4 @@ Functions using return-data pattern should be tested to verify:
 
 See `tests/bats/unit/adapter_registry_helpers.bats` for examples.
 
+

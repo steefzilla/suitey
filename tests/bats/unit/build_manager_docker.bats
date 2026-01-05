@@ -187,3 +187,4 @@ load ../helpers/build_manager_docker
 
 	teardown_build_manager_docker_test
 }
+

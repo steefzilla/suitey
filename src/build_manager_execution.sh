@@ -136,3 +136,4 @@ build_manager_execute_build_async() {
 
 	build_manager_execute_build "$build_spec_json" "$framework" > /dev/null
 }
+

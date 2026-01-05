@@ -18,9 +18,9 @@ _source_bats_adapter() {
     bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
   elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
     bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
-  else
+else
     bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
-  fi
+fi
   source "$bats_adapter_script"
 }
 

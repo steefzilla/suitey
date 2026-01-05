@@ -16,3 +16,4 @@ json_test_validate() { local json="$1"; echo "$json" | jq . >/dev/null 2>&1; }
 
 setup_build_manager_execution_test() { TEST_BUILD_MANAGER_DIR=$(mktemp -d -t "suitey_build_exec_test_${1:-test}_XXXXXX"); export TEST_BUILD_MANAGER_DIR; echo "$TEST_BUILD_MANAGER_DIR"; }
 teardown_build_manager_execution_test() { [[ -n "${TEST_BUILD_MANAGER_DIR:-}" ]] && rm -rf "$TEST_BUILD_MANAGER_DIR"; unset TEST_BUILD_MANAGER_DIR; }
+

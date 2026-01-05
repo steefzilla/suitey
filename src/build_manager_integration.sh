@@ -274,3 +274,4 @@ build_manager_build_dependent_real() {
 	# Analyze dependencies for sequential execution
 	echo "Analyzing build dependencies and executing in sequential order. Dependent builds completed successfully."
 }
+

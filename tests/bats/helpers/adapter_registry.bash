@@ -62,8 +62,12 @@ teardown_adapter_registry_test() {
 
   # Clean up registry state files
   rm -f /tmp/suitey_adapter_registry /tmp/suitey_adapter_capabilities /tmp/suitey_adapter_order /tmp/suitey_adapter_init
-  # Clean up any test directories that might be left
-  find /tmp -maxdepth 1 -name "suitey_adapter_test_*" -type d -exec rm -rf {} + 2>/dev/null || true
+  # REMOVED: Aggressive cleanup that deletes other parallel tests' directories
+  # This was causing race conditions where one test's teardown would delete
+  # directories that other parallel tests were still using.
+  # If orphaned directories need cleanup, it should be done at the end of the
+  # test suite, not during individual test teardown.
+  # find /tmp -maxdepth 1 -name "suitey_adapter_test_*" -type d -exec rm -rf {} + 2>/dev/null || true
 }
 
 # ============================================================================
@@ -594,6 +598,40 @@ run_adapter_registry_get_by_capability() {
 run_adapter_registry_initialize() {
   # Source adapter registry modules from src/
   _source_adapter_registry_modules
+
+  # Source framework_detector.sh (needed for json_object function used by adapters)
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Source built-in adapters (needed for initialization)
+  # Find and source adapters/bats.sh
+  local bats_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/bats.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/bats.sh" ]]; then
+    bats_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/bats.sh"
+  else
+    bats_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/bats.sh"
+  fi
+  source "$bats_adapter_script"
+
+  # Find and source adapters/rust.sh
+  local rust_adapter_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../../src/adapters/rust.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapters/rust.sh" ]]; then
+    rust_adapter_script="$BATS_TEST_DIRNAME/../../src/adapters/rust.sh"
+  else
+    rust_adapter_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src/adapters" && pwd)/rust.sh"
+  fi
+  source "$rust_adapter_script"
 
   # Call the function
   adapter_registry_initialize

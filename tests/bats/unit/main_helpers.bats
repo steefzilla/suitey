@@ -29,9 +29,9 @@ _source_main_modules() {
     main_script="$BATS_TEST_DIRNAME/../../../src/main.sh"
   elif [[ -f "$BATS_TEST_DIRNAME/../../src/main.sh" ]]; then
     main_script="$BATS_TEST_DIRNAME/../../src/main.sh"
-  else
+else
     main_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/main.sh"
-  fi
+fi
   source "$main_script"
 }
 

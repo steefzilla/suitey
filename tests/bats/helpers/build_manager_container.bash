@@ -174,3 +174,4 @@ assert_image_cleaned() {
 
   return 0
 }
+

@@ -96,3 +96,4 @@ build_manager_cleanup_image() {
 	docker rmi -f "$image_name" 2>/dev/null || true
 	fi
 }
+

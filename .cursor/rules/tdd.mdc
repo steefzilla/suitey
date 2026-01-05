@@ -1,6 +1,12 @@
 ---
 alwaysApply: true
 ---
-Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user.
-If there is a problem, first check relevant environment tests, then relevant unit tests, then relevant integration tests, then finally end to end tests.
-Do not put debug statements in the code to diagnose. Also do not create scripts to diagnose. Instead, search the test suite for any tests that might give you insight on what's going on. If you find any that will help, run them and use their information to help you.If you can't find any, consider creating unit or integration tests for whatever functionality is uncertain. 
+Use a Test Driven Development approach. While implementing, do not modify any test files unless you get explicit permission from the user. However, whenever you implement a function, you must write unit and integrations for it.
+
+Do not create debug scripts or put debug statements in the code to diagnose a problem. If there's uncertainty about a function or peice of code, use unit/integration tests to remove that uncertainty:
+1. Find all unit tests relevant to that code.
+2. If you can't find any unit tests, create them.
+3. Run all relevant unit tests and see if they're failing.
+	a. If they are failing, assume there's something wrong with that code implementation and try to fix that first.
+	b. If all relevant unit tests are succeeding. Repeat steps 1-3 for integration tests.
+	c. If you still don't know what's happening, you may temporarily insert debug code, but remove it immediately after you've collected your data.

@@ -148,6 +148,7 @@ _adapter_registry_decode_value() {
 }
 
 # Helper: Save an associative array to a file with base64 encoding
+# Uses atomic write: writes to temp file first, then renames atomically
 _adapter_registry_save_array_to_file() {
 	local array_name="$1"
 	local file_path="$2"
@@ -170,15 +171,26 @@ _adapter_registry_save_array_to_file() {
 		return 1
 	fi
 
-	# Create/truncate file with error checking using touch + verify
-	if ! touch "$file_path" 2>&1 || [[ ! -f "$file_path" ]]; then
-		echo "ERROR: Failed to create file: $file_path" >&2  # documented: File creation failed
-		return 1
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
 	fi
 
-	# Truncate it
-	> "$file_path"
-
+	# Write all data to temporary file
 	for key in "${!array_ref[@]}"; do
 		local value="${array_ref[$key]}"
 		# Skip empty values (shouldn't happen, but defensive)
@@ -188,11 +200,25 @@ _adapter_registry_save_array_to_file() {
 		fi
 		local encoded_value
 		if ! encoded_value=$(_adapter_registry_encode_value "$value"); then
+			# Clean up temp file on error
+			rm -f "$temp_file"
 			echo "ERROR: Failed to encode value for key '$key': '$value'" >&2
 			return 1
 		fi
-		echo "$key=$encoded_value" >> "$file_path"
+		echo "$key=$encoded_value" >> "$temp_file" || {
+			rm -f "$temp_file"
+			echo "ERROR: Failed to write to temporary file: $temp_file" >&2
+			return 1
+		}
 	done
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
+		return 1
+	fi
 
 	return 0
 }
@@ -275,6 +301,7 @@ _adapter_registry_load_array_from_file() {
 }
 
 # Helper: Save order array to file
+# Uses atomic write: writes to temp file first, then renames atomically
 _adapter_registry_save_order() {
 	local file_path="$1"
 	local dir_path
@@ -293,14 +320,44 @@ _adapter_registry_save_order() {
 		return 1
 	fi
 
-	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$file_path" 2>&1; then
-		echo "ERROR: Failed to write order file: $file_path" >&2  # documented: Order file write failed
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write all data to temporary file
+	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary order file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2  # documented: Order file write failed
 		return 1
 	fi
 	return 0
 }
 
 # Helper: Save initialized flag to file
+# Uses atomic write: writes to temp file first, then renames atomically
 _adapter_registry_save_initialized() {
 	local file_path="$1"
 	local dir_path
@@ -319,8 +376,37 @@ _adapter_registry_save_initialized() {
 		return 1
 	fi
 
-	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$file_path" 2>&1; then
-		echo "ERROR: Failed to write init file: $file_path" >&2
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write data to temporary file
+	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary init file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
 		return 1
 	fi
 	return 0

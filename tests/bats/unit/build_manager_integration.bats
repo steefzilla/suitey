@@ -251,3 +251,4 @@ load ../helpers/build_manager_integration
 
 	teardown_build_manager_integration_test
 }
+
