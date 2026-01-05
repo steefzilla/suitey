@@ -541,7 +541,21 @@ else
   echo "# ============================================================================" >> "$TEMP_FILE"
   strip_editor_hints "$SRC_DIR/common.sh" >> "$TEMP_FILE"
   echo "" >> "$TEMP_FILE"
-  
+
+  echo -e "${YELLOW}  Adding json_helpers.sh...${NC}"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  echo "# Source: src/json_helpers.sh" >> "$TEMP_FILE"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  strip_editor_hints "$SRC_DIR/json_helpers.sh" >> "$TEMP_FILE"
+  echo "" >> "$TEMP_FILE"
+
+  echo -e "${YELLOW}  Adding adapter_registry_helpers.sh...${NC}"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  echo "# Source: src/adapter_registry_helpers.sh" >> "$TEMP_FILE"
+  echo "# ============================================================================" >> "$TEMP_FILE"
+  strip_editor_hints "$SRC_DIR/adapter_registry_helpers.sh" >> "$TEMP_FILE"
+  echo "" >> "$TEMP_FILE"
+
   echo -e "${YELLOW}  Adding adapter_registry.sh...${NC}"
   echo "# ============================================================================" >> "$TEMP_FILE"
   echo "# Source: src/adapter_registry.sh" >> "$TEMP_FILE"

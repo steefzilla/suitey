@@ -215,8 +215,7 @@ _rust_build_test_suites_json() {
 	
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \
-		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 
