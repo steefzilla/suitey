@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -27,7 +32,10 @@ scan_project() {
 	adapter_registry_initialize
 
 	# Register any test adapters that are available (for testing)
-	local potential_adapters=("comprehensive_adapter" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
 	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true
@@ -152,7 +160,8 @@ detect_build_requirements() {
 	echo "registry detect_build_requirements $framework" >&2
 	echo "detect_build_requirements $framework" >&2
 	local build_req_json
-	if build_req_json=$("${framework}_adapter_detect_build_requirements" "$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
+	if build_req_json=$("${framework}_adapter_detect_build_requirements" \
+		"$PROJECT_ROOT" "$adapter_metadata" 2>/dev/null); then
 	# Aggregate into all_build_requirements
 	# For now, store per-framework (could merge JSON objects if needed)
 	if [[ "$all_build_requirements" == "{}" ]]; then
@@ -223,7 +232,10 @@ project_scanner_registry_orchestration() {
 
 	# Register any test adapters that are available before running scan_project
 	# Check for adapters that have functions defined
-	local potential_adapters=("comprehensive_adapter" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	if command -v "${adapter_name}_adapter_detect" >/dev/null 2>&1; then
 	adapter_registry_register "$adapter_name" >/dev/null 2>&1 || true

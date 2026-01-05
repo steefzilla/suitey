@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Colors for output (if terminal supports it)

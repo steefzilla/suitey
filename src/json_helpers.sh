@@ -5,10 +5,15 @@
 # and performance optimizations for repeated use.
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # ============================================================================
@@ -438,7 +443,9 @@ framework_detection_results_to_json() {
 	local errors_json
 	errors_json=$(array_to_json "$errors_array")
 
-	echo "{\"framework_list\":$frameworks_json,\"framework_details\":$details_json,\"binary_status\":$binary_json,\"warnings\":$warnings_json,\"errors\":$errors_json}"  # documented: Outputting framework detection results as JSON
+	# documented: Outputting framework detection results as JSON
+	echo "{\"framework_list\":$frameworks_json,\"framework_details\":$details_json," \
+		"\"binary_status\":$binary_json,\"warnings\":$warnings_json,\"errors\":$errors_json}"
 }
 
 # ============================================================================

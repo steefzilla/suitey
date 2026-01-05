@@ -35,15 +35,66 @@
 	local missing_hints_files
 	missing_hints_files=$(find src tests/bats \( -name "*.sh" -o -name "*.bats" \) -exec sh -c '
 		file="$1"
-		# Check if file contains vim modeline OR editor hints comment
-		if ! head -20 "$file" | grep -q "vim: set tabstop=4 shiftwidth=4 noexpandtab:" && \
-		   ! head -20 "$file" | grep -q "Editor hints: Use single-tab indentation"; then
-			echo "$file"
+		# Check if file contains required editor hints
+		# Required: vim modeline with tabstop=4 shiftwidth=4 noexpandtab textwidth=120
+		# Required: Editor hints comments for indentation and complexity limits
+		# Required: fill-column: 120 in Local Variables
+		local has_vim_modeline=false
+		local has_indent_hint=false
+		local has_line_length_hint=false
+		local has_function_size_hint=false
+		local has_functions_per_file_hint=false
+		local has_file_length_hint=false
+		local has_textwidth=false
+		local has_fill_column=false
+
+		# Check first 20 lines for all required hints
+		while IFS= read -r line; do
+			if echo "$line" | grep -q "vim: set.*tabstop=4.*shiftwidth=4.*noexpandtab"; then
+				has_vim_modeline=true
+			fi
+			if echo "$line" | grep -q "vim: set.*textwidth=120"; then
+				has_textwidth=true
+			fi
+			if echo "$line" | grep -q "Editor hints: Use single-tab indentation"; then
+				has_indent_hint=true
+			fi
+			if echo "$line" | grep -q "Editor hints: Max line length: 120 characters"; then
+				has_line_length_hint=true
+			fi
+			if echo "$line" | grep -q "Editor hints: Max function size: 50 lines"; then
+				has_function_size_hint=true
+			fi
+			if echo "$line" | grep -q "Editor hints: Max functions per file: 20"; then
+				has_functions_per_file_hint=true
+			fi
+			if echo "$line" | grep -q "Editor hints: Max file length: 1000 lines"; then
+				has_file_length_hint=true
+			fi
+			if echo "$line" | grep -q "fill-column: 120"; then
+				has_fill_column=true
+			fi
+		done < <(head -20 "$file")
+
+		# For source files (src/), require all hints
+		# For test files (tests/bats/), only require basic indentation hints
+		if echo "$file" | grep -q "^src/"; then
+			if [ "$has_vim_modeline" != "true" ] || [ "$has_indent_hint" != "true" ] || \
+			   [ "$has_line_length_hint" != "true" ] || [ "$has_function_size_hint" != "true" ] || \
+			   [ "$has_functions_per_file_hint" != "true" ] || [ "$has_file_length_hint" != "true" ] || \
+			   [ "$has_textwidth" != "true" ] || [ "$has_fill_column" != "true" ]; then
+				echo "$file"
+			fi
+		else
+			# Test files only need basic indentation hints
+			if [ "$has_vim_modeline" != "true" ] && [ "$has_indent_hint" != "true" ]; then
+				echo "$file"
+			fi
 		fi
 	' _ {} \;)
 
 	if [ -n "$missing_hints_files" ]; then
-		echo "Source files missing editor hints (vim/emacs indentation settings): $missing_hints_files"
+		echo "Source files missing editor hints: $missing_hints_files"
 		false
 	fi
 }

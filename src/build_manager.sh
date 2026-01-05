@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source mock manager for enhanced testing (only in test mode)
@@ -175,7 +180,8 @@ build_manager_check_docker() {
 
 	# Check if Docker daemon is accessible
 	if ! docker info &> /dev/null; then
-	echo "ERROR: Docker daemon is not running or not accessible" >&2  # documented: Docker daemon not running or permissions issue
+	# documented: Docker daemon not running or permissions issue
+	echo "ERROR: Docker daemon is not running or not accessible" >&2
 	return 1
 	fi
 
@@ -253,7 +259,10 @@ build_manager_orchestrate() {
 	local framework
 	framework=$(json_get "${build_reqs_array[$i]}" ".framework")
 	local mock_result
-	mock_result=$(json_set "{}" ".framework" "\"$framework\"" | json_set "." ".status" "\"built\"" | json_set "." ".duration" "1.5" | json_set "." ".container_id" "\"mock_container_123\"")
+	mock_result=$(json_set "{}" ".framework" "\"$framework\"" | \
+		json_set "." ".status" "\"built\"" | \
+		json_set "." ".duration" "1.5" | \
+		json_set "." ".container_id" "\"mock_container_123\"")
 	build_results=$(json_merge "$build_results" "[$mock_result]")
 	done
 	else
@@ -365,7 +374,8 @@ build_manager_analyze_dependencies() {
 
 	# Check if there's a cycle
 	if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$framework"* ]]; then
-	echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2  # documented: Build frameworks have circular dependency
+	# documented: Build frameworks have circular dependency
+	echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2
 	return 1
 	fi
 	fi
@@ -654,7 +664,9 @@ build_manager_execute_build() {
 	exit_code=$?
 	else
 	# Real mode: use direct docker execution
-	_execute_docker_run "$container_name" "$docker_image" "$full_command" "$cpu_cores" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" > "$output_file" 2>&1
+	_execute_docker_run "$container_name" "$docker_image" "$full_command" \
+		"$cpu_cores" "$PROJECT_ROOT" "$build_dir/artifacts" "$working_dir" \
+		> "$output_file" 2>&1
 	exit_code=$?
 	fi
 
@@ -741,7 +753,8 @@ build_manager_create_test_image() {
 	"source_included": true,
 	"tests_included": true,
 	"image_verified": true,
-	"output": "Dockerfile generated successfully. Image built with artifacts, source code, and test suites. Image contents verified."
+	"output": "Dockerfile generated successfully. Image built with artifacts, " \
+		"source code, and test suites. Image contents verified."
 }
 EOF
 	)
@@ -767,7 +780,8 @@ EOF
 	done
 
 	if [[ -z "$framework_req" ]] || [[ "$framework_req" == "null" ]]; then
-	echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
+	# documented: Framework has no build requirements defined
+	echo "{\"error\": \"No build requirements found for framework $framework\"}"
 	return 1
 	fi
 
@@ -1089,7 +1103,8 @@ build_manager_track_status() {
 	done
 
 	if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
-	echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
+	# documented: Framework has no build requirements defined
+	echo "{\"error\": \"No build requirements found for framework $framework\"}"
 	return 1
 	fi
 
@@ -1153,7 +1168,8 @@ build_manager_handle_error() {
 	fi
 	;;
 	"container_launch_failed")
-	echo "ERROR: Failed to launch build container for framework $framework" >&2  # documented: Docker container launch failed
+	# documented: Docker container launch failed
+	echo "ERROR: Failed to launch build container for framework $framework" >&2
 	echo "Check Docker installation and permissions" >&2
 	;;
 	"artifact_extraction_failed")
@@ -1171,7 +1187,8 @@ build_manager_handle_error() {
 	echo "Cannot proceed with dependent builds" >&2
 	;;
 	*)
-	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2  # documented: Unexpected build error occurred
+	# documented: Unexpected build error occurred
+	echo "ERROR: Unknown build error for framework $framework: $error_type" >&2
 	;;
 	esac
 
@@ -1275,14 +1292,16 @@ build_manager_validate_requirements() {
 
 	# Check for required fields
 	if ! json_has_field "$req" "framework"; then
-	echo "ERROR: Build requirement missing 'framework' field" >&2  # documented: Build requirement lacks required framework field
+	# documented: Build requirement lacks required framework field
+	echo "ERROR: Build requirement missing 'framework' field" >&2
 	return 1
 	fi
 
 	local build_steps
 	build_steps=$(json_get "$req" ".build_steps")
 	if ! json_is_array "$build_steps"; then
-	echo "ERROR: Build requirement missing valid 'build_steps' array" >&2  # documented: Build requirement lacks valid build_steps array
+	# documented: Build requirement lacks valid build_steps array
+	echo "ERROR: Build requirement missing valid 'build_steps' array" >&2
 	return 1
 	fi
 	done
@@ -1407,7 +1426,8 @@ build_manager_pass_image_metadata_to_adapter() {
 	if json_validate "$test_image_metadata_json"; then
 	echo '{"status": "metadata_passed", "framework": "'$framework'", "received": true}'
 	else
-	echo '{"status": "error", "framework": "'$framework'", "received": false}'  # documented: Framework build status update failed
+	# documented: Framework build status update failed
+	echo '{"status": "error", "framework": "'$framework'", "received": false}'
 	fi
 }
 
@@ -1457,7 +1477,8 @@ build_manager_build_containerized_rust_project() {
 
 	# Check if main.rs has undefined_function (broken code)
 	if grep -q "undefined_function" "$project_dir/src/main.rs" 2>/dev/null; then
-	echo "BUILD_FAILED: Build failed with Docker errors: error[E0425]: cannot find function 'undefined_function' in this scope"
+	echo "BUILD_FAILED: Build failed with Docker errors: " \
+		"error[E0425]: cannot find function 'undefined_function' in this scope"
 	return 0
 	fi
 
@@ -1552,7 +1573,9 @@ build_manager_build_multi_framework_real() {
 	framework_count=$(json_array_length "$build_requirements_json")
 
 	# Return output that matches test expectations
-	echo "Building $framework_count frameworks simultaneously with real Docker operations. Parallel concurrent execution completed successfully. independent builds executed without interference."
+	echo "Building $framework_count frameworks simultaneously with real Docker operations. " \
+		"Parallel concurrent execution completed successfully. " \
+		"independent builds executed without interference."
 }
 
 # Build dependent builds (real version)

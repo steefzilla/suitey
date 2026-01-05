@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -81,7 +86,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY - verify directory exists and is writable
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -97,11 +103,14 @@ adapter_registry_save_state() {
 	for key in "${!ADAPTER_REGISTRY[@]}"; do
 	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
 	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	if encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with base64 + tr
 	fi
 
@@ -117,14 +126,16 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_CAPABILITIES - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
 
 	# Create/truncate file with error checking using touch + verify
 	if ! touch "$capabilities_file" 2>&1 || [[ ! -f "$capabilities_file" ]]; then
-	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2  # documented: Capabilities file creation failed
+	# documented: Capabilities file creation failed
+	echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2
 	return 1
 	fi
 	# Truncate it
@@ -133,11 +144,14 @@ adapter_registry_save_state() {
 	for key in "${!ADAPTER_REGISTRY_CAPABILITIES[@]}"; do
 	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
 	encoded_value=""
-	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	if encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -w 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with -b 0
-	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && [[ -n "$encoded_value" ]]; then
+	elif encoded_value=$(echo -n "${ADAPTER_REGISTRY_CAPABILITIES[$key]}" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
 	: # Success with base64 + tr
 	fi
 
@@ -153,7 +167,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_ORDER - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -166,7 +181,8 @@ adapter_registry_save_state() {
 	# Save ADAPTER_REGISTRY_INITIALIZED - directory already exists, just verify
 	if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
 	if ! mkdir -p "$actual_base_dir" 2>&1; then
-	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
+	# documented: Registry directory not accessible
+	echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
 	return 1
 	fi
 	fi
@@ -205,7 +221,9 @@ adapter_registry_load_state() {
 
 	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
 	# or if registry file exists in the new location, or if globals haven't been set yet
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || [[ -f "$registry_file" ]] || [[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
+		[[ -f "$registry_file" ]] || \
+		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
 	REGISTRY_BASE_DIR="$registry_base_dir"
 	ADAPTER_REGISTRY_FILE="$registry_file"
 	ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
@@ -263,7 +281,8 @@ adapter_registry_load_state() {
 	if [[ -n "$decoded_value" ]]; then
 	ADAPTER_REGISTRY["$key"]="$decoded_value"
 	else
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
+	# documented: Base64 decode failed, skipping corrupted registry entry
+	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
 	fi
 	fi
 	done < "$actual_registry_file"
@@ -294,7 +313,8 @@ adapter_registry_load_state() {
 	ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
 	capabilities_loaded=true
 	else
-	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
+	# documented: Base64 decode failed, skipping corrupted registry entry
+	echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
 	fi
 	fi
 	done < "$actual_capabilities_file"
@@ -350,7 +370,10 @@ adapter_registry_load_state() {
 
 # Clean up registry state files
 adapter_registry_cleanup_state() {
-	rm -f "$ADAPTER_REGISTRY_FILE" "$ADAPTER_REGISTRY_CAPABILITIES_FILE" "$ADAPTER_REGISTRY_ORDER_FILE" "$ADAPTER_REGISTRY_INIT_FILE"
+	rm -f "$ADAPTER_REGISTRY_FILE" \
+		"$ADAPTER_REGISTRY_CAPABILITIES_FILE" \
+		"$ADAPTER_REGISTRY_ORDER_FILE" \
+		"$ADAPTER_REGISTRY_INIT_FILE"
 }
 
 # Initialize/load registry state
@@ -378,7 +401,8 @@ adapter_registry_validate_interface() {
 	# Check that each required method exists
 	for method in "${required_methods[@]}"; do
 	if ! command -v "$method" >/dev/null 2>&1; then
-	echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2  # documented: Required adapter interface method missing
+	# documented: Required adapter interface method missing
+	echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2
 	return 1
 	fi
 	done
@@ -408,7 +432,8 @@ adapter_registry_extract_metadata() {
 	echo "$metadata_output"
 	return 0
 	else
-	echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2  # documented: Adapter metadata function failed or returned empty result
+	# documented: Adapter metadata function failed or returned empty result
+	echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2
 	if [[ -n "$metadata_output" ]]; then
 	echo "$metadata_output" >&2
 	fi
@@ -428,12 +453,16 @@ adapter_registry_validate_metadata() {
 
 
 	# Required fields that must be present in metadata
-	local required_fields=("name" "identifier" "version" "supported_languages" "capabilities" "required_binaries" "configuration_files")
+	local required_fields=(
+		"name" "identifier" "version" "supported_languages"
+		"capabilities" "required_binaries" "configuration_files"
+	)
 
 	# Check that each required field is present
 	for field in "${required_fields[@]}"; do
 	if ! json_has_field "$metadata_json" "$field"; then
-	echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2  # documented: Required metadata field missing
+	# documented: Required metadata field missing
+	echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2
 	return 1
 	fi
 	done
@@ -442,7 +471,8 @@ adapter_registry_validate_metadata() {
 	local actual_identifier
 	actual_identifier=$(json_get "$metadata_json" ".identifier")
 	if [[ "$actual_identifier" != "$adapter_identifier" ]]; then
-	echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2  # documented: Adapter identifier mismatch in metadata
+	# documented: Adapter identifier mismatch in metadata
+	echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2
 	return 1
 	fi
 
@@ -495,7 +525,8 @@ adapter_registry_register() {
 
 	# Check for identifier conflict
 	if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-	echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2  # documented: Duplicate adapter identifier
+	# documented: Duplicate adapter identifier
+	echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2
 	return 1
 	fi
 

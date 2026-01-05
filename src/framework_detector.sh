@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Source JSON helper functions
@@ -96,7 +101,8 @@ parse_test_suites_json() {
 
 	# Basic JSON validation - must start with [ and end with ]
 	if [[ "$json_array" != \[*\] ]]; then
-	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2  # documented: Framework detection result is malformed JSON
+	# documented: Framework detection result is malformed JSON
+	echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
 	return 1
 	fi
 
@@ -225,10 +231,21 @@ detect_frameworks() {
 	echo "using adapter registry" >&2
 
 	# Register any test adapters that are available (for testing)
-	local potential_adapters=("comprehensive_adapter" "mock_detector_adapter" "failing_adapter" "binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter" "iter_adapter1" "iter_adapter2" "iter_adapter3" "skip_adapter1" "skip_adapter2" "skip_adapter3" "metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter" "workflow_adapter1" "workflow_adapter2" "results_adapter1" "results_adapter2" "validation_adapter1" "validation_adapter2" "image_test_adapter" "no_build_adapter")
+	local potential_adapters=(
+		"comprehensive_adapter" "mock_detector_adapter" "failing_adapter"
+		"binary_check_adapter" "multi_adapter1" "multi_adapter2" "working_adapter"
+		"iter_adapter1" "iter_adapter2" "iter_adapter3"
+		"skip_adapter1" "skip_adapter2" "skip_adapter3"
+		"metadata_adapter" "available_binary_adapter" "unavailable_binary_adapter"
+		"workflow_adapter1" "workflow_adapter2"
+		"results_adapter1" "results_adapter2"
+		"validation_adapter1" "validation_adapter2"
+		"image_test_adapter" "no_build_adapter"
+	)
 	for adapter_name in "${potential_adapters[@]}"; do
 	# Try to source the adapter if it exists
-	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && [[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] && \
+		[[ -f "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" ]]; then
 	source "$TEST_ADAPTER_REGISTRY_DIR/adapters/$adapter_name/adapter.sh" >/dev/null 2>&1 || true
 	fi
 	# Try to register regardless

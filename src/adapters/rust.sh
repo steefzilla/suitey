@@ -3,10 +3,15 @@
 # ============================================================================
 #
 # Editor hints: Use single-tab indentation (tabstop=4, noexpandtab)
-# vim: set tabstop=4 shiftwidth=4 noexpandtab:
+# Editor hints: Max line length: 120 characters
+# Editor hints: Max function size: 50 lines
+# Editor hints: Max functions per file: 20
+# Editor hints: Max file length: 1000 lines
+# vim: set tabstop=4 shiftwidth=4 noexpandtab textwidth=120:
 # Local Variables:
 # tab-width: 4
 # indent-tabs-mode: t
+# fill-column: 120
 # End:
 
 # Rust adapter detection function
@@ -14,7 +19,8 @@ rust_adapter_detect() {
 	local project_root="$1"
 
 	# Check for valid Cargo.toml in project root
-	if [[ -f "$project_root/Cargo.toml" && -r "$project_root/Cargo.toml" ]] && grep -q '^\[package\]' "$project_root/Cargo.toml" 2>/dev/null; then
+	if [[ -f "$project_root/Cargo.toml" && -r "$project_root/Cargo.toml" ]] && \
+		grep -q '^\[package\]' "$project_root/Cargo.toml" 2>/dev/null; then
 	return 0
 	fi
 
@@ -186,7 +192,8 @@ rust_adapter_discover_test_suites() {
 	local suite_name=$(generate_suite_name "$file" "rs")
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \
+		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 

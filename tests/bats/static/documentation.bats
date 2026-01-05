@@ -93,15 +93,14 @@
 @test "documentation comments are meaningful" {
 	[ -f "suitey.sh" ] || skip "suitey.sh not found"
 
-	local empty_comments
-	empty_comments=$(grep "^# *$" suitey.sh | wc -l)
-
+	# Count comments that are too short but NOT empty (exclude empty comments as they're intentional separators)
+	# Exclude empty comments, shebang, and set commands
 	local too_short_comments
-	too_short_comments=$(grep "^#" suitey.sh | grep -v "^#!/bin/bash" | grep -v "^# set" | awk 'length($0) < 5' | wc -l)
+	too_short_comments=$(grep "^#" suitey.sh | grep -v "^#!/bin/bash" | grep -v "^# set" | grep -v "^# *$" | awk 'length($0) < 5' | wc -l)
 
-	local total_meaningless=$((empty_comments + too_short_comments))
-	if [ "$total_meaningless" -ne 0 ]; then
-		echo "Found $total_meaningless meaningless comments (empty or too short)"
+	if [ "$too_short_comments" -ne 0 ]; then
+		echo "Found $too_short_comments meaningless comments (too short but not empty):"
+		grep "^#" suitey.sh | grep -v "^#!/bin/bash" | grep -v "^# set" | grep -v "^# *$" | awk 'length($0) < 5'
 		false
 	fi
 }
