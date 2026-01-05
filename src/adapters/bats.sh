@@ -187,10 +187,29 @@ _bats_discover_test_directories() {
 # Helper: Discover root files
 _bats_discover_root_files() {
 	local project_root="$1"
-	local -a test_dirs=("$@")  # Remaining args are test_dirs
-	local -a seen_files=()     # Next arg should be seen_files
-	local shift_count=$(( ${#test_dirs[@]} + 1 ))
-	shift "$shift_count"
+	shift
+	local -a test_dirs=()
+	local -a seen_files=()
+	
+	# Separate test_dirs from seen_files
+	# test_dirs are the first arguments, seen_files come after
+	local arg
+	local in_seen_files=0
+	for arg in "$@"; do
+		if [[ $in_seen_files -eq 0 ]]; then
+			# Check if this looks like a test directory or a file path
+			# Test directories are absolute paths ending in known patterns
+			# Seen files are absolute paths to .bats files
+			if [[ "$arg" == *.bats ]]; then
+				in_seen_files=1
+				seen_files+=("$arg")
+			else
+				test_dirs+=("$arg")
+			fi
+		else
+			seen_files+=("$arg")
+		fi
+	done
 
 	local root_files
 	root_files=$(find_bats_files "$project_root")
@@ -236,8 +255,7 @@ _bats_build_suites_json() {
 		local suite_name=$(generate_suite_name "$file" "bats")
 		local test_count=$(count_bats_tests "$(get_absolute_path "$file")")
 
-		suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\"," \
-			"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+		suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"bats\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 

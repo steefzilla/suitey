@@ -100,53 +100,49 @@ _adapter_registry_load_order_array() {
 	fi
 }
 
-# Helper: Perform reload operations
+# Helper: Perform reload operations (returns data instead of populating arrays)
+# Returns: registry_output, capabilities_output, order_output, capabilities_loaded flag
+# Format: Line 1 = capabilities_loaded (true/false), Line 2 = switching_locations (true/false),
+#         Then registry_output (count + key=value pairs), then capabilities_output, then order_output
 _adapter_registry_perform_reload() {
 	local actual_registry_file="$1"
 	local actual_capabilities_file="$2"
 	local actual_order_file="$3"
 	local switching_locations="$4"
 
-	# Clear arrays before loading to ensure clean state from file
-	ADAPTER_REGISTRY=()
-	# Only clear capabilities if we're going to load from file
-	# This prevents losing in-memory state when file doesn't exist
-	if [[ -f "$actual_capabilities_file" ]] || [[ "$switching_locations" == "true" ]]; then
-		ADAPTER_REGISTRY_CAPABILITIES=()
-	fi
-	ADAPTER_REGISTRY_ORDER=()
-
-	# Load arrays from files using return-data pattern (manual population for BATS compatibility)
+	# Load data from files using return-data pattern
 	local registry_output
 	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
-	local registry_count
-	registry_count=$(echo "$registry_output" | head -n 1)
-	# Manually populate registry array from output
-	if [[ "$registry_count" -gt 0 ]]; then
-		while IFS='=' read -r key value || [[ -n "$key" ]]; do
-			[[ -z "$key" ]] && continue
-			ADAPTER_REGISTRY["$key"]="$value"
-		done < <(echo "$registry_output" | tail -n +2)
-	fi
-
+	
+	local capabilities_output=""
 	local capabilities_loaded=false
 	if [[ -f "$actual_capabilities_file" ]]; then
-		local capabilities_output
 		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
 		local loaded_count
 		loaded_count=$(echo "$capabilities_output" | head -n 1)
-		# Manually populate capabilities array from output
-		if [[ "$loaded_count" -gt 0 ]]; then
-			while IFS='=' read -r key value || [[ -n "$key" ]]; do
-				[[ -z "$key" ]] && continue
-				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
-			done < <(echo "$capabilities_output" | tail -n +2)
-		fi
 		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
 	fi
-
-	_adapter_registry_load_order_array "$actual_order_file"
-	_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching_locations" "$actual_capabilities_file"
+	
+	local order_output=""
+	if [[ -f "$actual_order_file" ]]; then
+		# Load order file content
+		order_output=$(cat "$actual_order_file" 2>/dev/null || echo "")
+	fi
+	
+	# Return data: capabilities_loaded flag, switching_locations flag, then outputs
+	# Use a delimiter to separate sections
+	echo "CAPABILITIES_LOADED:$capabilities_loaded"
+	echo "SWITCHING_LOCATIONS:$switching_locations"
+	echo "REGISTRY_START"
+	echo -n "$registry_output"
+	echo "REGISTRY_END"
+	echo "CAPABILITIES_START"
+	echo -n "$capabilities_output"
+	echo "CAPABILITIES_END"
+	echo "ORDER_START"
+	echo -n "$order_output"
+	echo "ORDER_END"
+	return 0
 }
 
 # Load registry state from files (for testing persistence)
@@ -175,11 +171,84 @@ adapter_registry_load_state() {
 		"$switching_locations")
 
 	if [[ "$should_reload" == "true" ]]; then
-		_adapter_registry_perform_reload \
+		# Get reload data from helper
+		local reload_data
+		reload_data=$(_adapter_registry_perform_reload \
 			"$actual_registry_file" \
 			"$actual_capabilities_file" \
 			"$actual_order_file" \
-			"$switching_locations"
+			"$switching_locations")
+		
+		# Parse reload data
+		local capabilities_loaded
+		capabilities_loaded=$(echo "$reload_data" | grep "^CAPABILITIES_LOADED:" | cut -d: -f2)
+		local switching
+		switching=$(echo "$reload_data" | grep "^SWITCHING_LOCATIONS:" | cut -d: -f2)
+		
+		# Extract registry output (between REGISTRY_START and REGISTRY_END)
+		local registry_output
+		registry_output=$(echo "$reload_data" | sed -n '/^REGISTRY_START$/,/^REGISTRY_END$/p' | sed '1d;$d')
+		
+		# Extract capabilities output (between CAPABILITIES_START and CAPABILITIES_END)
+		local capabilities_output
+		capabilities_output=$(echo "$reload_data" | sed -n '/^CAPABILITIES_START$/,/^CAPABILITIES_END$/p' | sed '1d;$d')
+		
+		# Extract order output (between ORDER_START and ORDER_END)
+		local order_output
+		order_output=$(echo "$reload_data" | sed -n '/^ORDER_START$/,/^ORDER_END$/p' | sed '1d;$d')
+		
+		# Ensure arrays are declared as global before populating (BATS compatibility)
+		eval "unset ADAPTER_REGISTRY 2>/dev/null || true"
+		eval "declare -g -A ADAPTER_REGISTRY"
+		ADAPTER_REGISTRY=()
+		
+		if [[ "$capabilities_loaded" == "true" ]] || [[ "$switching" == "true" ]]; then
+			eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
+			eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
+			ADAPTER_REGISTRY_CAPABILITIES=()
+		fi
+		
+		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
+		eval "declare -g -a ADAPTER_REGISTRY_ORDER"
+		ADAPTER_REGISTRY_ORDER=()
+		
+		# Populate registry array from output
+		local registry_count
+		registry_count=$(echo "$registry_output" | head -n 1)
+		if [[ "$registry_count" -gt 0 ]]; then
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				ADAPTER_REGISTRY["$key"]="$value"
+			done < <(echo "$registry_output" | tail -n +2)
+		fi
+
+		# Populate capabilities array from output
+		if [[ -n "$capabilities_output" ]]; then
+			local loaded_count
+			loaded_count=$(echo "$capabilities_output" | head -n 1)
+			if [[ "$loaded_count" -gt 0 ]]; then
+				while IFS='=' read -r key value || [[ -n "$key" ]]; do
+					[[ -z "$key" ]] && continue
+					ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+				done < <(echo "$capabilities_output" | tail -n +2)
+			fi
+		fi
+		
+		# Populate order array from output
+		if [[ -n "$order_output" ]]; then
+			mapfile -t ADAPTER_REGISTRY_ORDER < <(echo "$order_output")
+			# Filter out empty lines and trim spaces
+			local filtered_array=()
+			local element
+			for element in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+				local trimmed="${element#"${element%%[![:space:]]*}"}"
+				trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+				[[ -n "$trimmed" ]] && filtered_array+=("$trimmed")
+			done
+			ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
+		fi
+		
+		_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching" "$actual_capabilities_file"
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
@@ -346,10 +415,29 @@ adapter_registry_register() {
 	fi
 
 	# Check for identifier conflict
+	# Check both in-memory array and file directly (for BATS compatibility)
+	local identifier_exists=false
 	if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-	# documented: Duplicate adapter identifier
-	echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2
-	return 1
+		identifier_exists=true
+	else
+		# Also check file directly in case array wasn't loaded correctly in BATS subshell
+		local file_paths
+		file_paths=$(_adapter_registry_determine_file_locations)
+		local file_paths_array
+		mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+		local actual_registry_file="${file_paths_array[0]}"
+		if [[ -f "$actual_registry_file" ]]; then
+			# Check if identifier exists in file (key is before first '=')
+			if grep -q "^${adapter_identifier}=" "$actual_registry_file" 2>/dev/null; then
+				identifier_exists=true
+			fi
+		fi
+	fi
+	
+	if [[ "$identifier_exists" == "true" ]]; then
+		# documented: Duplicate adapter identifier
+		echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2
+		return 1
 	fi
 
 	# Validate interface

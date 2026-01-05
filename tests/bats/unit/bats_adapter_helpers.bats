@@ -70,42 +70,118 @@ get_absolute_path() {
 # ============================================================================
 
 @test "_bats_discover_test_directories finds files in test directories" {
-	local project_root="/test/project"
+	# Create temporary directories for the test
+	local tmp_dir=$(mktemp -d)
+	local project_root="$tmp_dir/test/project"
+	mkdir -p "$project_root/tests/bats"
+	mkdir -p "$project_root/test/bats"
+	mkdir -p "$project_root/tests"
+	mkdir -p "$project_root/test"
+	
+	# Override find_bats_files globally to use the temp directory
+	find_bats_files() {
+		local dir="$1"
+		if [[ "$dir" == "$project_root/tests/bats" ]]; then
+			echo "$project_root/tests/bats/test1.bats"
+			echo "$project_root/tests/bats/test2.bats"
+		elif [[ "$dir" == "$project_root/test/bats" ]]; then
+			echo "$project_root/test/bats/test3.bats"
+		fi
+	}
+	
 	local result
 	result=$(_bats_discover_test_directories "$project_root")
 
 	# Should output files first, then seen files
 	local files_found=0
 	local seen_found=0
-	while IFS= read -r line; do
-		if [[ "$line" == "/test/project/tests/bats/test1.bats" ]] ||
-		   [[ "$line" == "/test/project/tests/bats/test2.bats" ]] ||
-		   [[ "$line" == "/test/project/test/bats/test3.bats" ]]; then
-			((files_found++))
-		fi
-		if [[ "$line" == *".bats"* ]]; then
-			((seen_found++))
+	local line_count=0
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Trim whitespace
+		line="${line%"${line##*[![:space:]]}"}"
+		line="${line#"${line%%[![:space:]]*}"}"
+		if [[ -n "$line" ]]; then
+			line_count=$((line_count + 1))
+			# First 3 lines should be the actual files
+			if [[ $line_count -le 3 ]]; then
+				if [[ "$line" == "$project_root/tests/bats/test1.bats" ]] ||
+				   [[ "$line" == "$project_root/tests/bats/test2.bats" ]] ||
+				   [[ "$line" == "$project_root/test/bats/test3.bats" ]]; then
+					files_found=$((files_found + 1))
+				fi
+			fi
+			# Lines 4-6 are the seen_files section
+			if [[ $line_count -gt 3 ]] && [[ "$line" == *".bats"* ]]; then
+				seen_found=$((seen_found + 1))
+			fi
 		fi
 	done <<< "$result"
+
+	# Restore original mock
+	find_bats_files() {
+		local dir="$1"
+		if [[ "$dir" == "/test/project/tests/bats" ]]; then
+			echo "/test/project/tests/bats/test1.bats"
+			echo "/test/project/tests/bats/test2.bats"
+		elif [[ "$dir" == "/test/project/test/bats" ]]; then
+			echo "/test/project/test/bats/test3.bats"
+		elif [[ "$dir" == "/test/project" ]]; then
+			echo "/test/project/root_test.bats"
+		fi
+	}
+
+	# Cleanup
+	rm -rf "$tmp_dir"
 
 	[ "$files_found" -eq 3 ]
 	[ "$seen_found" -eq 3 ]
 }
 
 @test "_bats_discover_root_files excludes files from test directories" {
-	local project_root="/test/project"
+	# Create temporary directory for the test
+	local tmp_dir=$(mktemp -d)
+	local project_root="$tmp_dir/test/project"
+	mkdir -p "$project_root"
+	
+	# Override find_bats_files globally to use the temp directory
+	find_bats_files() {
+		local dir="$1"
+		if [[ "$dir" == "$project_root" ]]; then
+			echo "$project_root/root_test.bats"
+		fi
+	}
+	
 	local test_dirs=("$project_root/tests/bats" "$project_root/test/bats" "$project_root/tests" "$project_root/test")
-	local seen_files=("/test/project/tests/bats/test1.bats" "/test/project/tests/bats/test2.bats")
+	local seen_files=("$project_root/tests/bats/test1.bats" "$project_root/tests/bats/test2.bats")
 
 	local result
 	result=$(_bats_discover_root_files "$project_root" "${test_dirs[@]}" "${seen_files[@]}")
 
 	local root_files_found=0
-	while IFS= read -r line; do
-		if [[ "$line" == "/test/project/root_test.bats" ]]; then
-			((root_files_found++))
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Trim whitespace
+		line="${line%"${line##*[![:space:]]}"}"
+		line="${line#"${line%%[![:space:]]*}"}"
+		if [[ -n "$line" ]] && [[ "$line" == "$project_root/root_test.bats" ]]; then
+			root_files_found=$((root_files_found + 1))
 		fi
 	done <<< "$result"
+
+	# Restore original mock
+	find_bats_files() {
+		local dir="$1"
+		if [[ "$dir" == "/test/project/tests/bats" ]]; then
+			echo "/test/project/tests/bats/test1.bats"
+			echo "/test/project/tests/bats/test2.bats"
+		elif [[ "$dir" == "/test/project/test/bats" ]]; then
+			echo "/test/project/test/bats/test3.bats"
+		elif [[ "$dir" == "/test/project" ]]; then
+			echo "/test/project/root_test.bats"
+		fi
+	}
+
+	# Cleanup
+	rm -rf "$tmp_dir"
 
 	[ "$root_files_found" -eq 1 ]
 }
