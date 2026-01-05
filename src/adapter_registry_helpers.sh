@@ -180,8 +180,15 @@ _adapter_registry_save_array_to_file() {
 	> "$file_path"
 
 	for key in "${!array_ref[@]}"; do
+		local value="${array_ref[$key]}"
+		# Skip empty values (shouldn't happen, but defensive)
+		if [[ -z "$value" ]]; then
+			# Silently skip empty values (they shouldn't be in the array anyway)
+			continue
+		fi
 		local encoded_value
-		if ! encoded_value=$(_adapter_registry_encode_value "${array_ref[$key]}"); then
+		if ! encoded_value=$(_adapter_registry_encode_value "$value"); then
+			echo "ERROR: Failed to encode value for key '$key': '$value'" >&2
 			return 1
 		fi
 		echo "$key=$encoded_value" >> "$file_path"
@@ -446,6 +453,32 @@ _adapter_registry_load_order_array() {
 		done
 		ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
 	fi
+}
+
+# Helper: Load order array from file using return-data pattern
+# Returns: count on first line, then one identifier per line
+_adapter_registry_load_order_from_file() {
+	local order_file="$1"
+	
+	if [[ ! -f "$order_file" ]]; then
+		echo "0"  # Return count of 0 if file doesn't exist
+		return 0
+	fi
+	
+	# Read file and filter out empty lines
+	local filtered_lines=()
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Trim leading/trailing spaces
+		local trimmed="${line#"${line%%[![:space:]]*}"}"
+		trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+		# Only add non-empty lines
+		[[ -n "$trimmed" ]] && filtered_lines+=("$trimmed")
+	done < "$order_file"
+	
+	# Return count first, then data (consistent with array loading pattern)
+	echo "${#filtered_lines[@]}"
+	printf '%s\n' "${filtered_lines[@]}"
+	return 0
 }
 
 # Helper: Perform reload operations

@@ -205,11 +205,10 @@ adapter_registry_load_state() {
 		# Clear the array (this preserves the associative type)
 		ADAPTER_REGISTRY=()
 		
-		if [[ "$capabilities_loaded" == "true" ]] || [[ "$switching" == "true" ]]; then
-			eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
-			eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
-			ADAPTER_REGISTRY_CAPABILITIES=()
-		fi
+		# Always ensure ADAPTER_REGISTRY_CAPABILITIES is declared (BATS compatibility)
+		eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
+		eval "declare -g -A ADAPTER_REGISTRY_CAPABILITIES"
+		ADAPTER_REGISTRY_CAPABILITIES=()
 		
 		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
 		eval "declare -g -a ADAPTER_REGISTRY_ORDER"
@@ -229,6 +228,8 @@ adapter_registry_load_state() {
 				[[ "$key" == "CAPABILITIES_END" ]] && continue
 				[[ "$key" == "ORDER_START" ]] && continue
 				[[ "$key" == "ORDER_END" ]] && continue
+				# Skip if key is purely numeric (likely a count line that wasn't filtered)
+				[[ "$key" =~ ^[0-9]+$ ]] && continue
 				ADAPTER_REGISTRY["$key"]="$value"
 			done < <(echo "$registry_output" | tail -n +2)
 		fi
@@ -237,9 +238,26 @@ adapter_registry_load_state() {
 		if [[ -n "$capabilities_output" ]]; then
 			local loaded_count
 			loaded_count=$(echo "$capabilities_output" | head -n 1)
-			if [[ "$loaded_count" -gt 0 ]]; then
+			if [[ "$loaded_count" =~ ^[0-9]+$ ]] && [[ "$loaded_count" -gt 0 ]]; then
 				while IFS='=' read -r key value || [[ -n "$key" ]]; do
 					[[ -z "$key" ]] && continue
+					# Skip if key looks like a delimiter or is invalid
+					[[ "$key" == "REGISTRY_START" ]] && continue
+					[[ "$key" == "REGISTRY_END" ]] && continue
+					[[ "$key" == "CAPABILITIES_START" ]] && continue
+					[[ "$key" == "CAPABILITIES_END" ]] && continue
+					[[ "$key" == "ORDER_START" ]] && continue
+					[[ "$key" == "ORDER_END" ]] && continue
+					# Skip if key is purely numeric (likely a count line that wasn't filtered)
+					[[ "$key" =~ ^[0-9]+$ ]] && continue
+					
+					# Clean the value - remove any trailing delimiter strings that might have been included
+					value="${value%%CAPABILITIES_END*}"
+					value="${value%%REGISTRY_END*}"
+					value="${value%%ORDER_END*}"
+					# Trim trailing whitespace
+					value="${value%"${value##*[![:space:]]}"}"
+					
 					ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
 				done < <(echo "$capabilities_output" | tail -n +2)
 			fi
@@ -247,15 +265,23 @@ adapter_registry_load_state() {
 		
 		# Populate order array from output
 		if [[ -n "$order_output" ]]; then
-			mapfile -t ADAPTER_REGISTRY_ORDER < <(echo "$order_output")
-			# Filter out empty lines and trim spaces
+			# Filter out empty lines and delimiter strings
 			local filtered_array=()
 			local element
-			for element in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+			while IFS= read -r element || [[ -n "$element" ]]; do
+				# Trim leading/trailing spaces
 				local trimmed="${element#"${element%%[![:space:]]*}"}"
 				trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
-				[[ -n "$trimmed" ]] && filtered_array+=("$trimmed")
-			done
+				# Skip empty lines and delimiter strings
+				[[ -z "$trimmed" ]] && continue
+				[[ "$trimmed" == "REGISTRY_START" ]] && continue
+				[[ "$trimmed" == "REGISTRY_END" ]] && continue
+				[[ "$trimmed" == "CAPABILITIES_START" ]] && continue
+				[[ "$trimmed" == "CAPABILITIES_END" ]] && continue
+				[[ "$trimmed" == "ORDER_START" ]] && continue
+				[[ "$trimmed" == "ORDER_END" ]] && continue
+				filtered_array+=("$trimmed")
+			done < <(echo "$order_output")
 			ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
 		fi
 		
@@ -268,6 +294,75 @@ adapter_registry_load_state() {
 	# Always ensure ADAPTER_REGISTRY_FILE is set (even if we didn't reload)
 	if [[ -z "${ADAPTER_REGISTRY_FILE:-}" ]]; then
 		ADAPTER_REGISTRY_FILE="$actual_registry_file"
+	fi
+
+	# Always ensure ADAPTER_REGISTRY_ORDER is declared (BATS compatibility)
+	# This is necessary because in subshell contexts, arrays don't persist
+	if ! declare -p ADAPTER_REGISTRY_ORDER 2>/dev/null | grep -q '\-a'; then
+		eval "unset ADAPTER_REGISTRY_ORDER 2>/dev/null || true"
+		declare -g -a ADAPTER_REGISTRY_ORDER
+		ADAPTER_REGISTRY_ORDER=()
+	fi
+
+	# Always load order array if file exists (using return-data pattern)
+	# This ensures it works in subshell contexts where arrays don't persist
+	# and ensures order is loaded even if should_reload was false or reload didn't populate it correctly
+	# We always reload from file to ensure we have the latest state
+	if [[ -f "$actual_order_file" ]]; then
+		local order_data
+		order_data=$(_adapter_registry_load_order_from_file "$actual_order_file")
+		local order_count
+		order_count=$(echo "$order_data" | head -n 1)
+		
+		if [[ "$order_count" =~ ^[0-9]+$ ]] && [[ "$order_count" -gt 0 ]]; then
+			# Populate array from returned data (always reload to ensure latest state)
+			mapfile -t ADAPTER_REGISTRY_ORDER < <(echo "$order_data" | tail -n +2)
+		fi
+	fi
+
+	# Always ensure ADAPTER_REGISTRY_CAPABILITIES is declared (BATS compatibility)
+	# This is necessary because in subshell contexts, arrays don't persist
+	if ! declare -p ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null | grep -q '\-A'; then
+		eval "unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true"
+		declare -g -A ADAPTER_REGISTRY_CAPABILITIES
+		ADAPTER_REGISTRY_CAPABILITIES=()
+	fi
+
+	# Always load capabilities array if file exists (using return-data pattern)
+	# This ensures it works in subshell contexts where arrays don't persist
+	# and ensures capabilities are loaded even if should_reload was false or reload didn't populate it correctly
+	# We always reload from file to ensure we have the latest state
+	# Only load if array is empty or if we didn't reload (to avoid overwriting in-memory state unnecessarily)
+	if [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_data
+		capabilities_data=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		local capabilities_count
+		capabilities_count=$(echo "$capabilities_data" | head -n 1)
+		
+		if [[ "$capabilities_count" =~ ^[0-9]+$ ]] && [[ "$capabilities_count" -gt 0 ]]; then
+			# Populate array from returned data (always reload to ensure latest state)
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				# Skip if key looks like a delimiter or is invalid
+				[[ "$key" == "REGISTRY_START" ]] && continue
+				[[ "$key" == "REGISTRY_END" ]] && continue
+				[[ "$key" == "CAPABILITIES_START" ]] && continue
+				[[ "$key" == "CAPABILITIES_END" ]] && continue
+				[[ "$key" == "ORDER_START" ]] && continue
+				[[ "$key" == "ORDER_END" ]] && continue
+				# Skip if key is purely numeric (likely a count line that wasn't filtered)
+				[[ "$key" =~ ^[0-9]+$ ]] && continue
+				
+				# Clean the value - remove any trailing delimiter strings that might have been included
+				value="${value%%CAPABILITIES_END*}"
+				value="${value%%REGISTRY_END*}"
+				value="${value%%ORDER_END*}"
+				# Trim trailing whitespace
+				value="${value%"${value##*[![:space:]]}"}"
+				
+				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+			done < <(echo "$capabilities_data" | tail -n +2)
+		fi
 	fi
 
 	# Always try to load ADAPTER_REGISTRY_INITIALIZED if file exists
