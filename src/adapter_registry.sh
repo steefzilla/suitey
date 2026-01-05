@@ -758,10 +758,26 @@ adapter_registry_initialize() {
 
 	# Also check if adapters are already registered (defensive check)
 	# This handles the case where adapters were registered but init file wasn't written
+	# Check both array AND file, since load_state might not have loaded from file
+	# (e.g., if should_reload was false, or in edge cases)
 	if [[ "$is_initialized" != "true" ]]; then
 		local adapters_registered=0
+		local actual_registry_file="${file_paths_array[0]}"  # Use already-determined path
 		for adapter in "bats" "rust"; do
+			local adapter_found=false
+			# Check array first
 			if [[ -v ADAPTER_REGISTRY["$adapter"] ]]; then
+				adapter_found=true
+			fi
+			# Also check file (in case load_state didn't load it)
+			if [[ "$adapter_found" != "true" ]] && [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
+				local escaped_identifier
+				escaped_identifier=$(printf '%s\n' "$adapter" | sed 's/[[\.*^$()+?{|]/\\&/g')
+				if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
+					adapter_found=true
+				fi
+			fi
+			if [[ "$adapter_found" == "true" ]]; then
 				adapters_registered=$((adapters_registered + 1))
 			fi
 		done
@@ -781,9 +797,38 @@ adapter_registry_initialize() {
 	local builtin_adapters=("bats" "rust")
 
 	for adapter in "${builtin_adapters[@]}"; do
-	# Check if adapter is already registered before trying to register
+	# Check if adapter is already registered (check both array and file for consistency)
+	local adapter_exists=false
 	if [[ -v ADAPTER_REGISTRY["$adapter"] ]]; then
-	continue  # Skip if already registered
+		adapter_exists=true
+	fi
+	# Also check file directly (more reliable, consistent with adapter_registry_register)
+	# This prevents errors when registry files from previous runs still exist
+	# Use ADAPTER_REGISTRY_FILE if set (from load_state), otherwise determine it
+	# This ensures we use the same path that load_state used, avoiding path mismatches
+	if [[ "$adapter_exists" != "true" ]]; then
+		local actual_registry_file=""
+		if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+			# Use ADAPTER_REGISTRY_FILE if set (from load_state)
+			actual_registry_file="${ADAPTER_REGISTRY_FILE}"
+		else
+			# Fallback: determine file locations
+			local file_paths
+			file_paths=$(_adapter_registry_determine_file_locations)
+			local file_paths_array
+			mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+			actual_registry_file="${file_paths_array[0]}"
+		fi
+		if [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
+			local escaped_identifier
+			escaped_identifier=$(printf '%s\n' "$adapter" | sed 's/[[\.*^$()+?{|]/\\&/g')
+			if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
+				adapter_exists=true
+			fi
+		fi
+	fi
+	if [[ "$adapter_exists" == "true" ]]; then
+		continue  # Skip if already registered
 	fi
 	if ! adapter_registry_register "$adapter"; then
 	echo "ERROR: Failed to register built-in adapter '$adapter'" >&2  # documented: Built-in adapter registration failed

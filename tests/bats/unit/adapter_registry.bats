@@ -283,6 +283,292 @@ json_test_has_field() {
   teardown_adapter_registry_test
 }
 
+@test "adapter_registry_initialize skips registration when adapters exist in file but not in memory" {
+  setup_adapter_registry_test
+
+  # First, register an adapter normally
+  run_adapter_registry_initialize
+
+  # Clear the in-memory array to simulate it not being loaded
+  # This simulates the scenario where files exist from a previous run
+  # but the array wasn't populated (e.g., due to load_state not being called)
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Try to initialize again - should not fail with "already registered" error
+  # It should detect the adapters in the file and skip registration
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize handles existing registry files from previous runs" {
+  setup_adapter_registry_test
+
+  # Simulate a previous run by creating registry files manually
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+  local order_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_order"
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+
+  # Source modules to get helper functions
+  _source_adapter_registry_modules
+
+  # Register bats adapter and save state (simulating previous run)
+  declare -A ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY["bats"]='{"name":"BATS","identifier":"bats","version":"1.0.0"}'
+  ADAPTER_REGISTRY_ORDER+=("bats")
+  adapter_registry_save_state
+
+  # Clear in-memory state (simulate new run)
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Initialize - should detect bats in file and skip it, then register rust
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify both adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize checks file before attempting registration" {
+  setup_adapter_registry_test
+
+  # Source modules and adapters (needed for registration)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Now clear in-memory state (simulating new run where array wasn't loaded)
+  # but keep the files from the previous initialization
+  _source_adapter_registry_modules
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Initialize again - should not fail with "already registered" error
+  # Should detect adapters in file and skip registration
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [ -f "$registry_file" ]
+  grep -q "^bats=" "$registry_file"
+  grep -q "^rust=" "$registry_file"
+
+  # Verify via registry functions
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize defensive check detects adapters in file when array is empty" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # First, properly initialize to create registry files
+  run_adapter_registry_initialize
+  assert_success
+
+  # Now simulate the scenario where the defensive check runs but the array is empty
+  # (This could happen if load_state didn't populate the array correctly, or in edge cases)
+  # Clear the in-memory array AFTER load_state would have run
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Clear the init file to force the defensive check to run
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+  rm -f "$init_file"
+
+  # Verify the registry file still exists with adapters
+  local registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  [ -f "$registry_file" ]
+  grep -q "^bats=" "$registry_file"
+  grep -q "^rust=" "$registry_file"
+
+  # Now call initialize - the defensive check should detect adapters in the file
+  # even though the array is empty, and set is_initialized=true to avoid re-registration
+  # This test should FAIL before the fix (defensive check only checks array)
+  # and PASS after the fix (defensive check also checks file)
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "adapter_registry_initialize registration loop uses ADAPTER_REGISTRY_FILE from load_state" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # First, properly initialize to create registry files
+  run_adapter_registry_initialize
+  assert_success
+
+  # Manually set ADAPTER_REGISTRY_FILE to simulate load_state setting it
+  # This ensures we're testing the path that load_state would use
+  local expected_registry_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_registry"
+  ADAPTER_REGISTRY_FILE="$expected_registry_file"
+
+  # Verify the file exists and has adapters
+  [ -f "$expected_registry_file" ]
+  grep -q "^bats=" "$expected_registry_file"
+  grep -q "^rust=" "$expected_registry_file"
+
+  # Clear in-memory state but keep ADAPTER_REGISTRY_FILE set
+  # This simulates the scenario where load_state sets ADAPTER_REGISTRY_FILE
+  # but doesn't populate the array (edge case)
+  ADAPTER_REGISTRY=()
+  ADAPTER_REGISTRY_ORDER=()
+  ADAPTER_REGISTRY_INITIALIZED=false
+
+  # Clear the init file to force re-initialization
+  local init_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_init"
+  rm -f "$init_file"
+
+  # Now initialize again - the registration loop should use ADAPTER_REGISTRY_FILE
+  # instead of re-determining paths via _adapter_registry_determine_file_locations()
+  # This ensures it uses the exact same path that load_state used
+  # This test should FAIL before the fix (registration loop re-determines paths)
+  # and PASS after the fix (registration loop uses ADAPTER_REGISTRY_FILE)
+  run adapter_registry_initialize 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify both adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "_scan_register_test_adapters does not fail when adapters already registered by initialize" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # Source scanner.sh to get _scan_register_test_adapters
+  local scanner_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../../src/scanner.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/scanner.sh" ]]; then
+    scanner_script="$BATS_TEST_DIRNAME/../../src/scanner.sh"
+  else
+    scanner_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/scanner.sh"
+  fi
+  source "$scanner_script"
+
+  # Initialize registry (registers bats and rust)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  # Now call _scan_register_test_adapters - it tries to register bats and rust again
+  # This should NOT fail with "already registered" error
+  # This test should FAIL before the fix (_scan_register_test_adapters doesn't check)
+  # and PASS after the fix (_scan_register_test_adapters checks before registering)
+  run _scan_register_test_adapters 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
+@test "_detect_register_test_adapters does not fail when adapters already registered by initialize" {
+  setup_adapter_registry_test
+
+  # Source modules
+  _source_adapter_registry_modules
+
+  # Source framework_detector.sh to get _detect_register_test_adapters
+  local framework_detector_script
+  if [[ -f "$BATS_TEST_DIRNAME/../../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../../src/framework_detector.sh"
+  elif [[ -f "$BATS_TEST_DIRNAME/../../src/framework_detector.sh" ]]; then
+    framework_detector_script="$BATS_TEST_DIRNAME/../../src/framework_detector.sh"
+  else
+    framework_detector_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/framework_detector.sh"
+  fi
+  source "$framework_detector_script"
+
+  # Initialize registry (registers bats and rust)
+  run_adapter_registry_initialize
+  assert_success
+
+  # Verify adapters are registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  # Now call _detect_register_test_adapters - it tries to register bats and rust again
+  # This should NOT fail with "already registered" error
+  # This test should FAIL before the fix (_detect_register_test_adapters doesn't check)
+  # and PASS after the fix (_detect_register_test_adapters checks before registering)
+  run _detect_register_test_adapters 2>&1
+  [ "$status" -eq 0 ]
+  # Should not contain "already registered" error
+  [[ "$output" != *"already registered"* ]]
+
+  # Verify adapters are still registered
+  output=$(run_adapter_registry_is_registered "bats")
+  assert_is_registered "$output" "bats"
+  output=$(run_adapter_registry_is_registered "rust")
+  assert_is_registered "$output" "rust"
+
+  teardown_adapter_registry_test
+}
+
 # ============================================================================
 # Metadata Management Tests
 # ============================================================================

@@ -26,8 +26,39 @@ fi
 # Helper: Register test adapters
 _scan_register_test_adapters() {
 	# Register adapters for test frameworks
-	adapter_registry_register "bats"
-	adapter_registry_register "rust"
+	# Check if adapters are already registered before attempting registration
+	# This prevents "already registered" errors when adapter_registry_initialize()
+	# has already registered these adapters
+	for adapter in "bats" "rust"; do
+		local adapter_exists=false
+		# Check array first
+		if [[ -v ADAPTER_REGISTRY["$adapter"] ]]; then
+			adapter_exists=true
+		fi
+		# Also check file (in case load_state didn't load it)
+		if [[ "$adapter_exists" != "true" ]]; then
+			local actual_registry_file=""
+			if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+				actual_registry_file="${ADAPTER_REGISTRY_FILE}"
+			else
+				local file_paths
+				file_paths=$(_adapter_registry_determine_file_locations)
+				local file_paths_array
+				mapfile -t file_paths_array < <(_adapter_registry_parse_file_paths "$file_paths")
+				actual_registry_file="${file_paths_array[0]}"
+			fi
+			if [[ -n "$actual_registry_file" ]] && [[ -f "$actual_registry_file" ]]; then
+				local escaped_identifier
+				escaped_identifier=$(printf '%s\n' "$adapter" | sed 's/[[\.*^$()+?{|]/\\&/g')
+				if grep -Eq "^${escaped_identifier}=" "$actual_registry_file" 2>/dev/null; then
+					adapter_exists=true
+				fi
+			fi
+		fi
+		if [[ "$adapter_exists" != "true" ]]; then
+			adapter_registry_register "$adapter" || true
+		fi
+	done
 }
 
 # Helper: Process detected framework
