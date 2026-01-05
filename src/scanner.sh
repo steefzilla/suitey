@@ -271,9 +271,9 @@ output_results() {
     echo "" >&2
     
     if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
-      echo "Errors:" >&2
+      echo "Errors:" >&2  # documented: Displaying scan errors to user
       for error in "${SCAN_ERRORS[@]}"; do
-        echo -e "  ${RED}•${NC} $error" >&2
+        echo -e "  ${RED}•${NC} $error" >&2  # documented: Displaying individual scan error
       done
       echo "" >&2
     fi
@@ -304,7 +304,7 @@ output_results() {
   if [[ ${#SCAN_ERRORS[@]} -gt 0 ]]; then
     echo -e "${YELLOW}⚠${NC} Warnings:" >&2
     for error in "${SCAN_ERRORS[@]}"; do
-      echo -e "  ${YELLOW}•${NC} $error" >&2
+      echo -e "  ${YELLOW}•${NC} $error" >&2  # documented: Displaying individual scan warning
     done
     echo "" >&2
   fi

@@ -132,7 +132,7 @@ build_manager_initialize() {
 
   # Check Docker availability
   if ! build_manager_check_docker; then
-    echo "ERROR: Docker daemon not running or cannot connect" >&2
+    echo "ERROR: Docker daemon not running or cannot connect" >&2  # documented: Docker is required but not available
     return 1
   fi
 
@@ -162,13 +162,13 @@ build_manager_initialize() {
 build_manager_check_docker() {
   # Check if docker command exists
   if ! command -v docker &> /dev/null; then
-    echo "ERROR: Docker command not found in PATH" >&2
+    echo "ERROR: Docker command not found in PATH" >&2  # documented: Docker CLI not installed or not in PATH
     return 1
   fi
 
   # Check if Docker daemon is accessible
   if ! docker info &> /dev/null; then
-    echo "ERROR: Docker daemon is not running or not accessible" >&2
+    echo "ERROR: Docker daemon is not running or not accessible" >&2  # documented: Docker daemon not running or permissions issue
     return 1
   fi
 
@@ -208,21 +208,21 @@ build_manager_orchestrate() {
 
   # Validate input
   if [[ -z "$build_requirements_json" ]]; then
-    echo '{"error": "No build requirements provided"}'
+    echo '{"error": "No build requirements provided"}'  # documented: Orchestrate called without build requirements
     return 1
   fi
 
   # Initialize if not already done
   if [[ -z "$BUILD_MANAGER_TEMP_DIR" ]]; then
     if ! build_manager_initialize; then
-      echo '{"error": "Failed to initialize Build Manager"}'
+      echo '{"error": "Failed to initialize Build Manager"}'  # documented: Build manager initialization failed
       return 1
     fi
   fi
 
   # Validate build requirements structure
   if ! build_manager_validate_requirements "$build_requirements_json"; then
-    echo '{"error": "Invalid build requirements structure"}'
+    echo '{"error": "Invalid build requirements structure"}'  # documented: Build requirements JSON is malformed
     return 1
   fi
 
@@ -358,7 +358,7 @@ build_manager_analyze_dependencies() {
 
           # Check if there's a cycle
           if [[ "$deps" == *"$other_framework"* ]] && [[ "$other_deps" == *"$framework"* ]]; then
-            echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2
+            echo "ERROR: Circular dependency detected between $framework and $other_framework" >&2  # documented: Build frameworks have circular dependency
             return 1
           fi
         fi
@@ -760,7 +760,7 @@ EOF
   done
 
   if [[ -z "$framework_req" ]] || [[ "$framework_req" == "null" ]]; then
-    echo "{\"error\": \"No build requirements found for framework $framework\"}"
+    echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
     return 1
   fi
 
@@ -1082,7 +1082,7 @@ build_manager_track_status() {
   done
 
   if [[ -z "$build_req" ]] || [[ "$build_req" == "null" ]]; then
-    echo "{\"error\": \"No build requirements found for framework $framework\"}"
+    echo "{\"error\": \"No build requirements found for framework $framework\"}"  # documented: Framework has no build requirements defined
     return 1
   fi
 
@@ -1140,13 +1140,13 @@ build_manager_handle_error() {
 
   case "$error_type" in
     "build_failed")
-      echo "ERROR: Build failed for framework $framework" >&2
+      echo "ERROR: Build failed for framework $framework" >&2  # documented: Test framework build process failed
       if [[ -n "$additional_info" ]]; then
         echo "Details: $additional_info" >&2
       fi
       ;;
     "container_launch_failed")
-      echo "ERROR: Failed to launch build container for framework $framework" >&2
+      echo "ERROR: Failed to launch build container for framework $framework" >&2  # documented: Docker container launch failed
       echo "Check Docker installation and permissions" >&2
       ;;
     "artifact_extraction_failed")
@@ -1154,17 +1154,17 @@ build_manager_handle_error() {
       echo "Build may still be usable" >&2
       ;;
     "image_build_failed")
-      echo "ERROR: Failed to build test image for framework $framework" >&2
+      echo "ERROR: Failed to build test image for framework $framework" >&2  # documented: Docker image build failed
       if [[ -n "$additional_info" ]]; then
         echo "Build output: $additional_info" >&2
       fi
       ;;
     "dependency_failed")
-      echo "ERROR: Build dependency failed for framework $framework" >&2
+      echo "ERROR: Build dependency failed for framework $framework" >&2  # documented: Required dependency build failed
       echo "Cannot proceed with dependent builds" >&2
       ;;
     *)
-      echo "ERROR: Unknown build error for framework $framework: $error_type" >&2
+      echo "ERROR: Unknown build error for framework $framework: $error_type" >&2  # documented: Unexpected build error occurred
       ;;
   esac
 
@@ -1248,13 +1248,13 @@ build_manager_validate_requirements() {
 
   # Check if it's valid JSON
   if ! json_validate "$build_requirements_json"; then
-    echo "ERROR: Invalid JSON in build requirements" >&2
+    echo "ERROR: Invalid JSON in build requirements" >&2  # documented: Build requirements JSON is malformed
     return 1
   fi
 
   # Check if it's an array
   if ! json_is_array "$build_requirements_json"; then
-    echo "ERROR: Build requirements must be a JSON array" >&2
+    echo "ERROR: Build requirements must be a JSON array" >&2  # documented: Build requirements must be JSON array format
     return 1
   fi
 
@@ -1268,14 +1268,14 @@ build_manager_validate_requirements() {
 
     # Check for required fields
     if ! json_has_field "$req" "framework"; then
-      echo "ERROR: Build requirement missing 'framework' field" >&2
+      echo "ERROR: Build requirement missing 'framework' field" >&2  # documented: Build requirement lacks required framework field
       return 1
     fi
 
     local build_steps
     build_steps=$(json_get "$req" ".build_steps")
     if ! json_is_array "$build_steps"; then
-      echo "ERROR: Build requirement missing valid 'build_steps' array" >&2
+      echo "ERROR: Build requirement missing valid 'build_steps' array" >&2  # documented: Build requirement lacks valid build_steps array
       return 1
     fi
   done
@@ -1343,7 +1343,7 @@ build_manager_coordinate_with_project_scanner() {
   if build_manager_validate_requirements "$build_requirements_json"; then
     echo '{"status": "coordinated", "ready": true}'
   else
-    echo '{"status": "error", "ready": false}'
+    echo '{"status": "error", "ready": false}'  # documented: Build manager readiness check failed
   fi
 }
 
@@ -1358,7 +1358,7 @@ build_manager_provide_results_to_scanner() {
   if json_validate "$build_results_json"; then
     echo '{"status": "results_received", "processed": true}'
   else
-    echo '{"status": "error", "processed": false}'
+    echo '{"status": "error", "processed": false}'  # documented: Build processing failed
   fi
 }
 
@@ -1400,7 +1400,7 @@ build_manager_pass_image_metadata_to_adapter() {
   if json_validate "$test_image_metadata_json"; then
     echo '{"status": "metadata_passed", "framework": "'$framework'", "received": true}'
   else
-    echo '{"status": "error", "framework": "'$framework'", "received": false}'
+    echo '{"status": "error", "framework": "'$framework'", "received": false}'  # documented: Framework build status update failed
   fi
 }
 
@@ -1540,7 +1540,7 @@ EOF
   if docker build -f "$dockerfile" -t "$target_image" "$project_dir" >/dev/null 2>&1; then
     echo '{"success": true, "image_name": "'"$target_image"'"}'
   else
-    echo '{"success": false, "error": "Test image creation failed"}'
+    echo '{"success": false, "error": "Test image creation failed"}'  # documented: Docker test image build failed
     return 1
   fi
 }

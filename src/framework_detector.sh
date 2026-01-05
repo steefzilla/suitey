@@ -89,7 +89,7 @@ parse_test_suites_json() {
 
   # Basic JSON validation - must start with [ and end with ]
   if [[ "$json_array" != \[*\] ]]; then
-    echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2
+    echo "ERROR: Invalid JSON format for $framework - not a valid array" >&2  # documented: Framework detection result is malformed JSON
     return 1
   fi
 

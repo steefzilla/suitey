@@ -86,7 +86,7 @@
 	[ -f "suitey.sh" ] || skip "suitey.sh not found"
 
 	local empty_comments
-	empty_comments=$(grep -c "^# *$" suitey.sh)
+	empty_comments=$(grep "^# *$" suitey.sh | wc -l)
 
 	local too_short_comments
 	too_short_comments=$(grep "^#" suitey.sh | grep -v "^#!/bin/bash" | grep -v "^# set" | awk 'length($0) < 5' | wc -l)

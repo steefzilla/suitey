@@ -53,7 +53,7 @@ adapter_registry_save_state() {
   
   # Ensure directory exists - create it if it doesn't exist
   if ! mkdir -p "$actual_base_dir" 2>&1; then
-    echo "ERROR: Failed to create registry directory: $actual_base_dir" >&2
+    echo "ERROR: Failed to create registry directory: $actual_base_dir" >&2  # documented: Directory creation failed
     return 1
   fi
   
@@ -74,14 +74,14 @@ adapter_registry_save_state() {
   # Save ADAPTER_REGISTRY - verify directory exists and is writable
   if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
     if ! mkdir -p "$actual_base_dir" 2>&1; then
-      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
+      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
       return 1
     fi
   fi
 
   # Create/truncate file with error checking using touch + verify
   if ! touch "$registry_file" 2>&1 || [[ ! -f "$registry_file" ]]; then
-    echo "ERROR: Failed to create registry file: $registry_file" >&2
+    echo "ERROR: Failed to create registry file: $registry_file" >&2  # documented: File creation failed
     return 1
   fi
   # Truncate it
@@ -97,10 +97,10 @@ adapter_registry_save_state() {
     elif encoded_value=$(echo -n "${ADAPTER_REGISTRY[$key]}" | base64 | tr -d '\n') && [[ -n "$encoded_value" ]]; then
       : # Success with base64 + tr
     fi
-    
+
     # Validate we got a non-empty encoded value
     if [[ -z "$encoded_value" ]]; then
-      echo "ERROR: Failed to encode value for key '$key'" >&2
+      echo "ERROR: Failed to encode value for key '$key'" >&2  # documented: Base64 encoding failed
       return 1
     fi
     
@@ -110,14 +110,14 @@ adapter_registry_save_state() {
   # Save ADAPTER_REGISTRY_CAPABILITIES - directory already exists, just verify
   if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
     if ! mkdir -p "$actual_base_dir" 2>&1; then
-      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
+      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
       return 1
     fi
   fi
 
   # Create/truncate file with error checking using touch + verify
   if ! touch "$capabilities_file" 2>&1 || [[ ! -f "$capabilities_file" ]]; then
-    echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2
+    echo "ERROR: Failed to create capabilities file: $capabilities_file" >&2  # documented: Capabilities file creation failed
     return 1
   fi
   # Truncate it
@@ -146,20 +146,20 @@ adapter_registry_save_state() {
   # Save ADAPTER_REGISTRY_ORDER - directory already exists, just verify
   if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
     if ! mkdir -p "$actual_base_dir" 2>&1; then
-      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
+      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
       return 1
     fi
   fi
 
   if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$order_file" 2>&1; then
-    echo "ERROR: Failed to write order file: $order_file" >&2
+    echo "ERROR: Failed to write order file: $order_file" >&2  # documented: Order file write failed
     return 1
   fi
 
   # Save ADAPTER_REGISTRY_INITIALIZED - directory already exists, just verify
   if [[ ! -d "$actual_base_dir" ]] || [[ ! -w "$actual_base_dir" ]]; then
     if ! mkdir -p "$actual_base_dir" 2>&1; then
-      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2
+      echo "ERROR: Directory does not exist or is not writable: $actual_base_dir" >&2  # documented: Registry directory not accessible
       return 1
     fi
   fi
@@ -188,8 +188,9 @@ adapter_registry_load_state() {
   
   # Ensure directory exists before trying to read files
   mkdir -p "$registry_base_dir"
-  
+
   # Check if we're switching locations BEFORE updating globals
+  # This determines if we need to reload state from a different file location
   local switching_locations=false
   if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
     switching_locations=true
@@ -255,7 +256,7 @@ adapter_registry_load_state() {
           if [[ -n "$decoded_value" ]]; then
             ADAPTER_REGISTRY["$key"]="$decoded_value"
           else
-            echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
+            echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
           fi
         fi
       done < "$actual_registry_file"
@@ -286,7 +287,7 @@ adapter_registry_load_state() {
             ADAPTER_REGISTRY_CAPABILITIES["$key"]="$decoded_value"
             capabilities_loaded=true
           else
-            echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2
+            echo "WARNING: Failed to decode base64 value for key '$key', skipping entry" >&2  # documented: Base64 decode failed, skipping corrupted registry entry
           fi
         fi
       done < "$actual_capabilities_file"
@@ -370,7 +371,7 @@ adapter_registry_validate_interface() {
   # Check that each required method exists
   for method in "${required_methods[@]}"; do
     if ! command -v "$method" >/dev/null 2>&1; then
-      echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2
+      echo "ERROR: Adapter '$adapter_identifier' is missing required interface method: $method" >&2  # documented: Required adapter interface method missing
       return 1
     fi
   done
@@ -400,7 +401,7 @@ adapter_registry_extract_metadata() {
     echo "$metadata_output"
     return 0
   else
-    echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2
+    echo "ERROR: Failed to extract metadata from adapter '$adapter_identifier'" >&2  # documented: Adapter metadata function failed or returned empty result
     if [[ -n "$metadata_output" ]]; then
       echo "$metadata_output" >&2
     fi
@@ -425,7 +426,7 @@ adapter_registry_validate_metadata() {
   # Check that each required field is present
   for field in "${required_fields[@]}"; do
     if ! json_has_field "$metadata_json" "$field"; then
-      echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2
+      echo "ERROR: Adapter '$adapter_identifier' metadata is missing required field: $field" >&2  # documented: Required metadata field missing
       return 1
     fi
   done
@@ -434,7 +435,7 @@ adapter_registry_validate_metadata() {
   local actual_identifier
   actual_identifier=$(json_get "$metadata_json" ".identifier")
   if [[ "$actual_identifier" != "$adapter_identifier" ]]; then
-    echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2
+    echo "ERROR: Adapter '$adapter_identifier' metadata identifier does not match adapter identifier" >&2  # documented: Adapter identifier mismatch in metadata
     return 1
   fi
 
@@ -481,30 +482,30 @@ adapter_registry_register() {
 
   # Validate input
   if [[ -z "$adapter_identifier" ]]; then
-    echo "ERROR: Cannot register adapter with null or empty identifier" >&2
+    echo "ERROR: Cannot register adapter with null or empty identifier" >&2  # documented: Adapter identifier is required
     return 1
   fi
 
   # Check for identifier conflict
   if [[ -v ADAPTER_REGISTRY["$adapter_identifier"] ]]; then
-    echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2
+    echo "ERROR: Adapter identifier '$adapter_identifier' is already registered" >&2  # documented: Duplicate adapter identifier
     return 1
   fi
 
   # Validate interface
   if ! adapter_registry_validate_interface "$adapter_identifier"; then
-    return 1
+    return 1  # documented: Interface validation failed - missing required functions
   fi
 
   # Extract and validate metadata
   local metadata_json
   metadata_json=$(adapter_registry_extract_metadata "$adapter_identifier")
   if [[ $? -ne 0 ]] || [[ -z "$metadata_json" ]]; then
-    return 1
+    return 1  # documented: Metadata extraction failed - adapter function error
   fi
 
   if ! adapter_registry_validate_metadata "$adapter_identifier" "$metadata_json"; then
-    return 1
+    return 1  # documented: Metadata validation failed - invalid adapter metadata
   fi
 
   # Store adapter metadata
@@ -623,7 +624,7 @@ adapter_registry_initialize() {
       continue  # Skip if already registered
     fi
     if ! adapter_registry_register "$adapter"; then
-      echo "ERROR: Failed to register built-in adapter '$adapter'" >&2
+      echo "ERROR: Failed to register built-in adapter '$adapter'" >&2  # documented: Built-in adapter registration failed
       # Continue with other adapters but return error
       return 1
     fi

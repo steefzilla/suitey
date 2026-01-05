@@ -47,7 +47,7 @@ main() {
           ;;
         -*)
           # Unknown option
-          echo "Error: Unknown option: $arg" >&2
+          echo "Error: Unknown option: $arg" >&2  # documented: Invalid command-line option provided  # documented: Invalid command-line option provided
           echo "Run 'suitey.sh --help' for usage information." >&2
           exit 2
           ;;
@@ -56,7 +56,7 @@ main() {
           if [[ -z "$project_root_arg" ]]; then
             project_root_arg="$arg"
           else
-            echo "Error: Multiple project root arguments specified." >&2
+            echo "Error: Multiple project root arguments specified." >&2  # documented: Only one project root directory allowed  # documented: Only one project root directory allowed
             echo "Run 'suitey.sh --help' for usage information." >&2
             exit 2
           fi
@@ -93,7 +93,7 @@ main() {
         ;;
       -*)
         # Unknown option
-        echo "Error: Unknown option: $arg" >&2
+        echo "Error: Unknown option: $arg" >&2  # documented: Invalid command-line option provided
         echo "Run 'suitey.sh --help' for usage information." >&2
         exit 2
         ;;
@@ -102,7 +102,7 @@ main() {
         if [[ -z "$project_root_arg" ]]; then
           project_root_arg="$arg"
         else
-          echo "Error: Multiple project root arguments specified." >&2
+          echo "Error: Multiple project root arguments specified." >&2  # documented: Only one project root directory allowed
           echo "Run 'suitey.sh --help' for usage information." >&2
           exit 2
         fi

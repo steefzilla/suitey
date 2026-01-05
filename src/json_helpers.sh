@@ -431,7 +431,7 @@ framework_detection_results_to_json() {
   local errors_json
   errors_json=$(array_to_json "$errors_array")
 
-  echo "{\"framework_list\":$frameworks_json,\"framework_details\":$details_json,\"binary_status\":$binary_json,\"warnings\":$warnings_json,\"errors\":$errors_json}"
+  echo "{\"framework_list\":$frameworks_json,\"framework_details\":$details_json,\"binary_status\":$binary_json,\"warnings\":$warnings_json,\"errors\":$errors_json}"  # documented: Outputting framework detection results as JSON
 }
 
 # ============================================================================
