@@ -501,7 +501,7 @@ cleanup_docker_resources() {
   echo "Cleaning up Docker resources with pattern: $pattern"
 
   # Remove containers (running and stopped)
-  docker ps -aq --filter "name=$pattern" | xargs -r docker rm -f 2>/dev/null || true
+  docker ps -aq --filter "name=$pattern*" | xargs -r docker rm -f 2>/dev/null || true
 
   # Remove images
   docker images -q --filter "reference=$pattern*" | xargs -r docker rmi -f 2>/dev/null || true
@@ -520,7 +520,7 @@ cleanup_docker_containers() {
   local pattern="${1:-suitey-test-*}"
 
   echo "Cleaning up Docker containers with pattern: $pattern"
-  docker ps -aq --filter "name=$pattern" | xargs -r docker rm -f 2>/dev/null || true
+  docker ps -aq --filter "name=$pattern*" | xargs -r docker rm -f 2>/dev/null || true
   echo "Container cleanup completed"
 }
 
@@ -1234,19 +1234,35 @@ name = "suitey_test_project"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "suitey_test_project"
+path = "src/lib.rs"
+
+[[bin]]
+name = "suitey_test_project"
+path = "src/main.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 EOF
 
-  # Create src directory with main.rs
+  # Create src directory
   mkdir -p "$base_dir/src"
-  cat > "$base_dir/src/main.rs" << 'EOF'
+  
+  # Create lib.rs with public struct for library crate
+  cat > "$base_dir/src/lib.rs" << 'EOF'
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize)]
-struct TestStruct {
-    value: String,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TestStruct {
+    pub value: String,
 }
+EOF
+
+  # Create main.rs that uses the library
+  cat > "$base_dir/src/main.rs" << 'EOF'
+use suitey_test_project::TestStruct;
 
 fn main() {
     let test = TestStruct {
@@ -1258,6 +1274,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use suitey_test_project::TestStruct;
 
     #[test]
     fn test_struct_creation() {

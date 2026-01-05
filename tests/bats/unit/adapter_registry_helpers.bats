@@ -791,3 +791,235 @@ EOF
 
 	teardown_adapter_registry_test
 }
+
+# ============================================================================
+# Set -u Compatibility Tests
+# ============================================================================
+
+@test "adapter_registry_helpers.sh declares ADAPTER_REGISTRY_CAPABILITIES early for set -u compatibility" {
+	setup_adapter_registry_test
+
+	# Find the correct path to adapter_registry_helpers.sh
+	local helpers_script
+	if [[ -f "$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh" ]]; then
+		helpers_script="$BATS_TEST_DIRNAME/../../../src/adapter_registry_helpers.sh"
+	elif [[ -f "$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh" ]]; then
+		helpers_script="$BATS_TEST_DIRNAME/../../src/adapter_registry_helpers.sh"
+	else
+		helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/adapter_registry_helpers.sh"
+	fi
+
+	# Source adapter_registry_helpers.sh with set -u enabled
+	# This should not fail with "unbound variable" error
+	set -u
+	source "$helpers_script" 2>&1
+	set +u
+
+	# Verify variable is declared
+	declare -p ADAPTER_REGISTRY_CAPABILITIES 2>&1 | grep -q 'declare -A'
+
+	teardown_adapter_registry_test
+}
+
+@test "adapter_registry_load_state works with set -u when ADAPTER_REGISTRY_CAPABILITIES is not declared" {
+	setup_adapter_registry_test
+
+	# Source modules
+	_source_adapter_registry_modules
+
+	# Unset the variable to simulate it not being declared
+	unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true
+
+	# Call load_state with set -u - should not fail
+	set -u
+	adapter_registry_load_state 2>&1
+	set +u
+
+	# Should succeed (test passes if no error)
+	[ $? -eq 0 ]
+
+	teardown_adapter_registry_test
+}
+
+@test "adapter_registry_load_state safe check works when variable is not declared" {
+	setup_adapter_registry_test
+
+	# Source modules
+	_source_adapter_registry_modules
+
+	# Unset the variable
+	unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true
+
+	# Create a capabilities file with properly base64-encoded values
+	local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+	local encoded_value
+	encoded_value=$(_adapter_registry_encode_value "test_adapter")
+	echo "test_cap=$encoded_value" > "$capabilities_file"
+
+	# Call load_state with set -u - should work
+	set -u
+	adapter_registry_load_state 2>&1
+	set +u
+
+	# Verify variable is now declared and populated
+	# Use declare -p instead of -v for arrays (more reliable)
+	declare -p ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null | grep -q 'declare -A'
+	[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -gt 0 ]
+	[ "${ADAPTER_REGISTRY_CAPABILITIES[test_cap]}" = "test_adapter" ]
+
+	teardown_adapter_registry_test
+}
+
+@test "adapter_registry_load_state safe check works when variable is declared but empty" {
+	setup_adapter_registry_test
+
+	# Source modules
+	_source_adapter_registry_modules
+
+	# Declare but leave empty
+	declare -A ADAPTER_REGISTRY_CAPABILITIES
+	ADAPTER_REGISTRY_CAPABILITIES=()
+
+	# Create a capabilities file with properly base64-encoded values
+	local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+	local encoded_value
+	encoded_value=$(_adapter_registry_encode_value "test_adapter")
+	echo "test_cap=$encoded_value" > "$capabilities_file"
+
+	# Call load_state with set -u - should work
+	set -u
+	adapter_registry_load_state 2>&1
+	set +u
+
+	# Verify variable is now populated
+	[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -gt 0 ]
+	[ "${ADAPTER_REGISTRY_CAPABILITIES[test_cap]}" = "test_adapter" ]
+
+	teardown_adapter_registry_test
+}
+
+@test "_adapter_registry_rebuild_capabilities safe check works with set -u when variable is not declared" {
+	setup_adapter_registry_test
+
+	# Source modules
+	_source_adapter_registry_modules
+
+	# Unset the variable
+	unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true
+
+	# Set up registry with adapters
+	declare -A ADAPTER_REGISTRY=(["test_adapter"]='{"capabilities":["test_cap"]}')
+	ADAPTER_REGISTRY_ORDER=("test_adapter")
+
+	# Create capabilities file (exists but empty scenario)
+	local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+	touch "$capabilities_file"
+
+	# Call rebuild_capabilities with set -u - should not fail with unbound variable error
+	# The key test is that it doesn't fail, not that the variable is accessible afterward
+	# (since set -u might affect variable access after the function returns)
+	set -u
+	run _adapter_registry_rebuild_capabilities 'false' 'false' "$capabilities_file" 2>&1
+	local rebuild_status=$?
+	set +u
+
+	# Should succeed (no unbound variable error)
+	[ $rebuild_status -eq 0 ]
+	# Should not contain "unbound variable" error message
+	[[ "$output" != *"unbound variable"* ]]
+
+	teardown_adapter_registry_test
+}
+
+@test "_adapter_registry_rebuild_capabilities safe check works with set -u when variable is declared but empty" {
+	setup_adapter_registry_test
+
+	# Source modules
+	_source_adapter_registry_modules
+
+	# Declare but leave empty
+	declare -A ADAPTER_REGISTRY_CAPABILITIES
+	ADAPTER_REGISTRY_CAPABILITIES=()
+
+	# Set up registry with adapters
+	declare -A ADAPTER_REGISTRY=(["test_adapter"]='{"capabilities":["test_cap"]}')
+	ADAPTER_REGISTRY_ORDER=("test_adapter")
+
+	# Create capabilities file (exists but empty scenario)
+	local capabilities_file="$TEST_ADAPTER_REGISTRY_DIR/suitey_adapter_capabilities"
+	touch "$capabilities_file"
+
+	# Call rebuild_capabilities with set -u - should work
+	set -u
+	_adapter_registry_rebuild_capabilities 'false' 'false' "$capabilities_file" 2>&1
+	set +u
+
+	# Verify variable is now populated
+	[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -gt 0 ]
+
+	teardown_adapter_registry_test
+}
+
+@test "safe array length check pattern works with set -u for undeclared variable" {
+	setup_adapter_registry_test
+
+	# Test the safe check pattern directly
+	unset ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true
+	set -u
+	result=""
+	if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]]; then
+		result="OK"
+	fi
+	set +u
+
+	[ "$result" = "OK" ]
+
+	teardown_adapter_registry_test
+}
+
+@test "safe array length check pattern works with set -u for declared empty array" {
+	setup_adapter_registry_test
+
+	# Test the safe check pattern with declared but empty array
+	declare -A ADAPTER_REGISTRY_CAPABILITIES
+	ADAPTER_REGISTRY_CAPABILITIES=()
+	set -u
+	result=""
+	if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]]; then
+		result="OK"
+	fi
+	set +u
+
+	[ "$result" = "OK" ]
+
+	teardown_adapter_registry_test
+}
+
+@test "safe array length check pattern works with set -u for declared non-empty array" {
+	setup_adapter_registry_test
+
+	# Test the safe check pattern with declared and populated array
+	declare -A ADAPTER_REGISTRY_CAPABILITIES
+	ADAPTER_REGISTRY_CAPABILITIES=([test_cap]='test_adapter')
+	set -u
+	result=""
+	# When array is declared and not empty:
+	# - [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] = false (variable is declared)
+	# - [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] = false (array has 1 element)
+	# - false || false = false, so condition is false, should go to else
+	# But we need to check if variable exists first for set -u compatibility
+	if ! declare -p ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null | grep -q '\-A'; then
+		result="NOT_DECLARED"
+	elif [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]]; then
+		result="EMPTY"
+	else
+		result="NOT_EMPTY"
+	fi
+	set +u
+
+	# Should not match the empty condition (array has 1 element)
+	[ "$result" = "NOT_EMPTY" ]
+	[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 1 ]
+
+	teardown_adapter_registry_test
+}

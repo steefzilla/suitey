@@ -432,9 +432,29 @@ EOF
 	else
 	# Production mode: actual Docker build
 	if docker_build -f "$dockerfile_path" -t "$image_name" "$context_dir" > "$output_file" 2>&1; then
-	# Get image ID
+	# Verify image was actually created (check with and without :latest tag)
 	local image_id
-	image_id=$(docker images -q "$image_name" | head -1)
+	image_id=$(docker images -q "$image_name" 2>/dev/null | head -1)
+	if [[ -z "$image_id" ]]; then
+		# Try with :latest tag
+		image_id=$(docker images -q "${image_name}:latest" 2>/dev/null | head -1)
+	fi
+
+	# If still no image ID, the build may have failed despite exit code 0
+	if [[ -z "$image_id" ]]; then
+		local result
+		result=$(cat <<EOF
+{
+	"success": false,
+	"image_name": "$image_name",
+	"error": "Docker build reported success but image not found",
+	"output": "$(json_escape "$(cat "$output_file")")"
+}
+EOF
+		)
+		echo "$result"
+		return 1
+	fi
 
 	local result
 	result=$(cat <<EOF

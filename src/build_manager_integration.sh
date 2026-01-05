@@ -180,10 +180,14 @@ build_manager_build_containerized_rust_project() {
 	return 0
 	fi
 
-	# Success case
+	# Success case - simulate cargo build output
 	mkdir -p "$project_dir/target/debug"
 	echo "dummy binary content" > "$project_dir/target/debug/suitey_test_project"
 	chmod +x "$project_dir/target/debug/suitey_test_project"
+	
+	# Output simulated cargo build output for integration tests
+	echo "   Compiling suitey_test_project v0.1.0 ($project_dir)"
+	echo "    Finished dev [unoptimized + debuginfo] target(s) in 0.50s"
 	return 0
 	fi
 

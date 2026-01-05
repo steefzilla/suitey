@@ -343,7 +343,8 @@ adapter_registry_load_state() {
 	# and ensures capabilities are loaded even if should_reload was false or reload didn't populate it correctly
 	# We always reload from file to ensure we have the latest state
 	# Only load if array is empty or if we didn't reload (to avoid overwriting in-memory state unnecessarily)
-	if [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
+	# Use safe check for set -u compatibility: check if variable is declared before checking length
+	if [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$actual_capabilities_file" ]]; then
 		local capabilities_data
 		capabilities_data=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
 		local capabilities_count
@@ -528,6 +529,10 @@ adapter_registry_index_capabilities() {
 
 	# Proceed with indexing if we have capabilities (empty is OK - means no capabilities)
 	if [[ -n "$capabilities" ]]; then
+		# Ensure ADAPTER_REGISTRY_CAPABILITIES is declared (for set -u compatibility)
+		if ! declare -p ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null | grep -q '\-A'; then
+			declare -A ADAPTER_REGISTRY_CAPABILITIES
+		fi
 		# Split capabilities by newline and index each capability
 		while IFS= read -r cap; do
 			if [[ -n "$cap" ]]; then

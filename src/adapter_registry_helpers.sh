@@ -15,6 +15,15 @@
 # End:
 
 # ============================================================================
+# Variable Declarations (for set -u compatibility)
+# ============================================================================
+# Declare variables early to prevent "unbound variable" errors when set -u is enabled
+# These are declared here as a safety measure, even though they're also declared in adapter_registry.sh
+# This ensures the variables exist if adapter_registry_helpers.sh is sourced before adapter_registry.sh
+# Use eval to avoid errors if variable is already declared
+eval "declare -A ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true" || true
+
+# ============================================================================
 # Helper Functions
 # ============================================================================
 
@@ -496,7 +505,7 @@ _adapter_registry_rebuild_capabilities() {
 		elif [[ "$switching_locations" == "true" ]]; then
 			# Switching locations - rebuild to ensure consistency
 			should_rebuild_capabilities=true
-		elif [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$capabilities_file" ]]; then
+		elif [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$capabilities_file" ]]; then
 			# Capabilities file exists but is empty - rebuild
 			should_rebuild_capabilities=true
 		fi
