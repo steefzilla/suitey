@@ -20,6 +20,17 @@ if [[ -f "$common_teardown_script" ]]; then
   source "$common_teardown_script"
 fi
 
+# Source JSON helpers first (required by build_manager_execution.sh)
+json_helpers_script=""
+if [[ -f "$BATS_TEST_DIRNAME/../../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../../src/json_helpers.sh"
+elif [[ -f "$BATS_TEST_DIRNAME/../../src/json_helpers.sh" ]]; then
+  json_helpers_script="$BATS_TEST_DIRNAME/../../src/json_helpers.sh"
+else
+  json_helpers_script="$(cd "$(dirname "$BATS_TEST_DIRNAME")/../../../src" && pwd)/json_helpers.sh"
+fi
+source "$json_helpers_script"
+
 build_manager_execution_script=""
 if [[ -f "$BATS_TEST_DIRNAME/../../../src/build_manager_execution.sh" ]]; then
   build_manager_execution_script="$BATS_TEST_DIRNAME/../../../src/build_manager_execution.sh"

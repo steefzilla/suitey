@@ -92,16 +92,22 @@ load ../helpers/build_manager_docker
 	setup_build_manager_docker_test
 
 	# Override docker command to verify it's called
-	local docker_called=false
+	# Use a temp file to capture the call since run executes in a subshell
+	local capture_file
+	capture_file=$(mktemp)
 	docker() {
-		docker_called=true
+		echo "called" > "$capture_file"
 		return 0
 	}
 
 	run docker_build --tag "complex_image" "/tmp/context"
 	[ "$status" -eq 0 ]
-	[ "$docker_called" = "true" ]
+	
+	local captured
+	captured=$(cat "$capture_file" 2>/dev/null || echo "")
+	[ "$captured" = "called" ]
 
+	rm -f "$capture_file"
 	teardown_build_manager_docker_test
 }
 
@@ -113,11 +119,12 @@ load ../helpers/build_manager_docker
 	setup_build_manager_docker_test
 
 	# Mock docker cp to verify arguments
-	local source_arg dest_arg
+	# Use a temp file to capture arguments since run executes in a subshell
+	local capture_file
+	capture_file=$(mktemp)
 	docker() {
 		if [[ "$1" == "cp" ]]; then
-			source_arg="$2"
-			dest_arg="$3"
+			echo "$2|$3" > "$capture_file"
 			return 0
 		fi
 		command docker "$@"
@@ -125,9 +132,12 @@ load ../helpers/build_manager_docker
 
 	run docker_cp "/source/path" "/dest/path"
 	[ "$status" -eq 0 ]
-	[ "$source_arg" = "/source/path" ]
-	[ "$dest_arg" = "/dest/path" ]
+	
+	local captured
+	captured=$(cat "$capture_file")
+	[ "$captured" = "/source/path|/dest/path" ]
 
+	rm -f "$capture_file"
 	teardown_build_manager_docker_test
 }
 
@@ -185,6 +195,61 @@ load ../helpers/build_manager_docker
 	test_docker_cp_functionality
 	[ "$?" -eq 0 ]
 
+	teardown_build_manager_docker_test
+}
+
+# ============================================================================
+# Function Override Support Tests
+# ============================================================================
+
+@test "docker_build allows function override in tests" {
+	setup_build_manager_docker_test
+	
+	# Verify that function overrides work (not using 'command')
+	# Use temp file since run executes in subshell
+	local capture_file
+	capture_file=$(mktemp)
+	docker() {
+		if [[ "$1" == "build" ]]; then
+			echo "override_worked" > "$capture_file"
+			return 0
+		fi
+		command docker "$@"
+	}
+	
+	run docker_build --tag "test" "/tmp"
+	[ "$status" -eq 0 ]
+	
+	local captured
+	captured=$(cat "$capture_file" 2>/dev/null || echo "")
+	[ "$captured" = "override_worked" ]
+	
+	rm -f "$capture_file"
+	teardown_build_manager_docker_test
+}
+
+@test "docker_cp allows function override in tests" {
+	setup_build_manager_docker_test
+	
+	# Verify that function overrides work (not using 'command')
+	local capture_file
+	capture_file=$(mktemp)
+	docker() {
+		if [[ "$1" == "cp" ]]; then
+			echo "$2|$3" > "$capture_file"
+			return 0
+		fi
+		command docker "$@"
+	}
+	
+	run docker_cp "/source" "/dest"
+	[ "$status" -eq 0 ]
+	
+	local captured
+	captured=$(cat "$capture_file" 2>/dev/null || echo "")
+	[ "$captured" = "/source|/dest" ]
+	
+	rm -f "$capture_file"
 	teardown_build_manager_docker_test
 }
 

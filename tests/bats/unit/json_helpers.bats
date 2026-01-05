@@ -370,3 +370,58 @@ test_element"
 	[ ${#test_array[@]} -eq 0 ]
 }
 
+# ============================================================================
+# JSON Path Extraction Tests (Array vs Object)
+# ============================================================================
+
+@test "json_get correctly extracts from JSON array using array index" {
+	local json_array='[{"field":"value1"},{"field":"value2"}]'
+	
+	local value
+	value=$(json_get "$json_array" '.[0].field')
+	[ "$value" = "value1" ]
+	
+	value=$(json_get "$json_array" '.[1].field')
+	[ "$value" = "value2" ]
+}
+
+@test "json_get correctly extracts from JSON object using dot notation" {
+	local json_object='{"field":"value","nested":{"key":"nested_value"}}'
+	
+	local value
+	value=$(json_get "$json_object" '.field')
+	[ "$value" = "value" ]
+	
+	value=$(json_get "$json_object" '.nested.key')
+	[ "$value" = "nested_value" ]
+}
+
+@test "json_get fails when using object path on array" {
+	local json_array='[{"field":"value"}]'
+	
+	run json_get "$json_array" '.field'
+	[ $status -ne 0 ]
+}
+
+@test "json_get fails when using array index on object" {
+	local json_object='{"field":"value"}'
+	
+	run json_get "$json_object" '.[0].field'
+	[ $status -ne 0 ]
+}
+
+@test "json_test_get correctly handles array of objects pattern" {
+	# This is the pattern that was fixed in assert_build_command_parallel
+	# json_test_get is a helper function, use json_get instead for this test
+	local build_steps='[{"build_command":"cargo build --jobs $(nproc)"}]'
+	
+	local command
+	command=$(json_get "$build_steps" '.[0].build_command')
+	# Compare with single quotes to prevent shell expansion
+	[ "$command" = 'cargo build --jobs $(nproc)' ]
+	
+	# Should fail if using wrong path
+	run json_get "$build_steps" '.build_command'
+	[ $status -ne 0 ]
+}
+

@@ -1634,7 +1634,8 @@ assert_build_steps_has_cpu_cores() {
 assert_build_command_parallel() {
   local build_steps_json="$1"
 
-  jobs_value=$(json_test_get "$build_steps_json" '.build_command')
+  # build_steps_json is an array, so we need to access the first element
+  jobs_value=$(json_test_get "$build_steps_json" '.[0].build_command')
   if [[ "$jobs_value" != *'jobs $(nproc)'* ]]; then
     echo "ERROR: Expected parallel build command with --jobs \$(nproc)"
     echo "Build steps: $build_steps_json"

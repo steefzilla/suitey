@@ -627,11 +627,18 @@ json_test_extract_build_spec() {
   # Create build requirements
   build_requirements=$(create_mock_build_requirements)
 
-  # Mock Docker build function that fails
-  docker_build() { mock_docker_build "$1" "$2" "1"; }
+  # Undefine mock_docker_build so we go through the normal code path
+  # This allows us to test the failure handling in build_manager_build_test_image
+  unset -f mock_docker_build
 
-  # Create test image
-  if output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts" 2>&1); then
+  # Mock Docker build function that fails (outputs to stderr, returns 1)
+  docker_build() {
+    echo "ERROR: Failed to build Docker image" >&2
+    return 1
+  }
+
+  # Create test image - capture stdout only for JSON parsing
+  if output=$(build_manager_create_test_image "$build_requirements" "rust" "/tmp/artifacts"); then
     status=0
   else
     status=$?

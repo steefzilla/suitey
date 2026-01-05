@@ -92,7 +92,8 @@ docker_build() {
 		# This is handled by test mocks
 		return 0
 	else
-		# Real Docker interface
+		# Real Docker interface - call docker directly to allow function overrides in tests
+		# In production, this will call the real docker binary; in tests, it will use the overridden function
 		docker build "$@"
 	fi
 }
@@ -102,6 +103,8 @@ docker_cp() {
 	local source="$1"
 	local dest="$2"
 
+	# Call docker directly to allow function overrides in tests
+	# In production, this will call the real docker binary; in tests, it will use the overridden function
 	docker cp "$source" "$dest"
 }
 

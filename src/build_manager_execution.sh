@@ -25,13 +25,19 @@
 build_manager_execute_parallel() {
 	local builds_json="$1"
 
+	local build_count
+	build_count=$(json_array_length "$builds_json")
+
+	# Return early if no builds to process
+	if [[ "$build_count" -eq 0 ]]; then
+		echo "[]"
+		return 0
+	fi
+
 	local results="[]"
 	local max_parallel=$(build_manager_get_cpu_cores)
 	local active_builds=()
 	local build_pids=()
-
-	local build_count
-	build_count=$(json_array_length "$builds_json")
 
 	for ((i=0; i<build_count; i++)); do
 	local build_spec
@@ -57,14 +63,18 @@ build_manager_execute_parallel() {
 	wait "$pid" 2>/dev/null || true
 	done
 
-	local result_files=("$BUILD_MANAGER_TEMP_DIR/builds"/*/result.json)
-	for result_file in "${result_files[@]}"; do
-	if [[ -f "$result_file" ]]; then
-	local result
-	result=$(cat "$result_file")
-	results=$(json_merge "$results" "[$result]")
+	# Collect results from result files (if BUILD_MANAGER_TEMP_DIR is set)
+	local temp_dir="${BUILD_MANAGER_TEMP_DIR:-${TEST_BUILD_MANAGER_DIR:-}}"
+	if [[ -n "$temp_dir" ]] && [[ -d "$temp_dir/builds" ]]; then
+		local result_files=("$temp_dir/builds"/*/result.json)
+		for result_file in "${result_files[@]}"; do
+		if [[ -f "$result_file" ]]; then
+		local result
+		result=$(cat "$result_file")
+		results=$(json_merge "$results" "[$result]")
+		fi
+		done
 	fi
-	done
 
 	echo "$results"
 }
