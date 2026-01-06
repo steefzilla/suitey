@@ -24,7 +24,7 @@ The Build Manager is responsible for:
 4. **Dependency Installation**: Installing dependencies in build containers before building
 5. **Artifact Management**: Extracting build artifacts and packaging them into Docker images
 6. **Test Image Creation**: Creating Docker images containing build artifacts, source code, and test suites
-7. **Dockerfile Generation**: Generating Dockerfiles and docker-compose configurations for test containers
+7. **Dockerfile Generation**: Generating Dockerfiles for test containers
 8. **Parallel Execution**: Running independent builds in parallel when possible
 9. **Status Tracking**: Tracking build progress and status for real-time reporting
 10. **Error Handling**: Detecting build failures and providing clear error messages
@@ -62,7 +62,7 @@ The Build Manager receives build requirements from Project Scanner:
 
 - **Build Requirements**: A collection of build specifications, one per framework that requires building
   - Framework identifier
-  - Build steps (commands, Docker image, docker-compose configuration, etc.)
+  - Build steps (commands, Docker image, etc.)
   - Build dependencies (if any)
   - Artifact storage requirements
   - Framework adapter reference (for build step execution)
@@ -82,7 +82,6 @@ The Build Manager provides:
   - Test image name/tag
   - Image ID
   - Dockerfile location
-  - docker-compose configuration (if applicable)
   - Framework associations
   - Artifact locations within image
 
@@ -114,11 +113,10 @@ For each dependency tier (executed sequentially):
    - For each build:
      - Determine build execution method from framework adapter:
        - Docker container with build command
-       - docker-compose orchestration
        - Custom build script execution
      - Create Docker volume for build artifacts (temporary, for extraction)
      - Launch build container with appropriate configuration:
-       - Use base image specified by framework adapter (e.g., `node:18`, `rust:latest`, `golang:1.21`)
+       - Use base image specified by framework adapter (e.g., `rust:latest`)
        - Mount project directory (read-only or read-write as needed)
        - Mount artifact volume (read-write) for build outputs
        - Set working directory
@@ -169,13 +167,7 @@ For each successful build:
    - Install test dependencies (if needed)
    - Set entrypoint/command for test execution (if applicable)
 
-3. **docker-compose Generation** (if needed): Create docker-compose.yml for complex test environments
-   - Define test service using generated Dockerfile
-   - Configure volumes (if any additional mounts needed)
-   - Set environment variables
-   - Configure networking (if needed)
-
-4. **Image Building**: Build Docker image from generated Dockerfile
+3. **Image Building**: Build Docker image from generated Dockerfile
    - Use `docker build` with appropriate context
    - Tag image with framework identifier and timestamp (e.g., `suitey-test-rust-20240115-143045`)
    - Track image ID for cleanup
@@ -211,14 +203,14 @@ The Build Manager works with Build System Detector (via Project Scanner) and fra
    - Adapters specify build commands and execution methods
 
 2. **Build Steps**: Framework adapters provide build execution specifications:
-   - Build commands (e.g., `npm run build`, `cargo build`, `make`)
+   - Build commands (e.g., `cargo build`, `make`)
    - Docker image requirements
    - Environment variables
    - Volume mount requirements
    - Build dependencies
 
 3. **Build Execution**: Build Manager uses adapter's `build_steps()` method to:
-   - Determine execution method (Docker container, docker-compose, etc.)
+   - Determine execution method (Docker container, etc.)
    - Get build commands
    - Configure container environment
    - Execute builds in isolated containers
@@ -237,14 +229,14 @@ Builds execute in Docker containers to ensure:
 
 Each build container is configured with:
 
-- **Base Image**: Determined by framework adapter (e.g., `node:18`, `rust:latest`, `golang:1.21`)
+- **Base Image**: Determined by framework adapter (e.g., `rust:latest`)
 - **CPU Allocation**: Multiple CPU cores allocated when available (via `--cpus` or `--cpu-shares`)
 - **Working Directory**: Project root or framework-specific build directory
 - **Volume Mounts**:
   - Project directory (read-only or read-write as needed)
   - Artifact volume (read-write) for build outputs (temporary, for extraction)
   - Temporary directory for intermediate files
-- **Environment Variables**: Framework-specific variables (e.g., `NODE_ENV`, `CARGO_TARGET_DIR`)
+- **Environment Variables**: Framework-specific variables (e.g., `CARGO_TARGET_DIR`)
 - **Build Commands**: 
   1. Dependency installation commands (if specified by adapter)
   2. Build commands with multi-core support (e.g., `make -j$(nproc)`, `cargo build --jobs $(nproc)`)
@@ -258,7 +250,6 @@ Build containers utilize multiple CPU cores when available:
 - **Build Commands**: Use parallel build flags when supported:
   - Make: `make -j$(nproc)`
   - Cargo: `cargo build --jobs $(nproc)`
-  - npm/yarn: Uses parallel builds by default
   - CMake: `cmake --build . -j$(nproc)`
 - **Resource Limits**: Balance between parallel builds and per-build core allocation
 
@@ -342,8 +333,7 @@ Each build status includes:
   "test_image": {
     "name": "suitey-test-rust-20240115-143045",
     "image_id": "sha256:def456...",
-    "dockerfile_path": "/tmp/suitey-12345/builds/rust/Dockerfile",
-    "docker_compose_path": "/tmp/suitey-12345/builds/rust/docker-compose.yml"
+    "dockerfile_path": "/tmp/suitey-12345/builds/rust/Dockerfile"
   },
   "output": "...",
   "error": null
@@ -480,13 +470,11 @@ Structure:
       result.json
       artifacts/          # Extracted build artifacts
       Dockerfile          # Generated Dockerfile for test image
-      docker-compose.yml  # Generated docker-compose config (if needed)
     <framework-2>/
       output.txt
       result.json
       artifacts/
       Dockerfile
-      docker-compose.yml
 ```
 
 ### Test Image Management
@@ -494,7 +482,7 @@ Structure:
 - Generate Dockerfiles for test images
 - Build Docker images with descriptive tags
 - Track image IDs for cleanup
-- Store Dockerfile and docker-compose configurations in temporary directories
+- Store Dockerfile configurations in temporary directories
 - Clean up test images after test execution completes (or on error)
 
 ### Container Naming
@@ -529,7 +517,6 @@ Each build writes results to structured files:
 ### External Dependencies
 
 - **Docker**: Required for containerized builds
-- **docker-compose**: Required for complex build orchestration (if needed by adapters)
 
 ### Internal Dependencies
 

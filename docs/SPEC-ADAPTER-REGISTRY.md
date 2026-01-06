@@ -18,24 +18,7 @@ The Adapter Registry is responsible for:
 
 ## Architecture Position
 
-The Adapter Registry operates as a shared component within the main suitey process:
-
-```
-┌─────────────────────────────────────┐
-│         suitey (main process)       │
-├─────────────────────────────────────┤
-│  Project Scanner (Orchestrator)     │
-│  ├─ Framework Detector              │
-│  │  └─ Adapter Registry             │ ← This component
-│  ├─ Test Suite Discovery            │
-│  │  └─ Adapter Registry             │ ← Used here too
-│  └─ Build System Detector           │
-│     └─ Adapter Registry             │ ← And here
-│  Build Manager                      │
-│  Parallel Execution Manager         │
-│     └─ Adapter Registry             │ ← And here
-└─────────────────────────────────────┘
-```
+The Adapter Registry operates as a shared component within the main suitey process.
 
 ### Relationship to Other Components
 
@@ -118,7 +101,7 @@ All framework adapters must implement a consistent interface that defines the co
     - `duration: number` - Execution time in seconds
     - `output: string` - Raw stdout/stderr output
     - `container_id: string` - Docker container ID (if used)
-    - `execution_method: string` - Execution method used (`docker`, `docker-compose`, `native`)
+    - `execution_method: string` - Execution method used (`docker`)
     - `test_image: string` - Test image name/tag used (if applicable)
 
 #### 5. Parsing Methods
@@ -164,12 +147,6 @@ Built-in adapters are registered automatically when the Adapter Registry is init
 
 - **BATS** - Bash Automated Testing System
 - **Rust** - cargo test
-- **JavaScript/TypeScript** - Jest, Mocha, Vitest, Jasmine, etc.
-- **Python** - pytest, unittest, nose2
-- **Go** - go test
-- **Java** - JUnit (via Maven/Gradle)
-- **Ruby** - RSpec, Minitest
-- And more as needed
 
 ### 2. Registration Process
 
@@ -189,7 +166,7 @@ Each adapter has a unique identifier used for:
 
 Identifiers should be:
 - Lowercase
-- Hyphen-separated (e.g., `bats`, `rust`, `jest`, `pytest`)
+- Hyphen-separated (e.g., `bats`, `rust`)
 - Descriptive and framework-specific
 
 ### 4. Registration API
@@ -259,39 +236,13 @@ The registry provides methods for adapter registration:
 
 ## Supported Frameworks
 
-The Adapter Registry supports adapters for multiple test frameworks:
-
-### JavaScript/TypeScript
-- Jest
-- Mocha
-- Vitest
-- Jasmine
-- And more as needed
-
-### Python
-- pytest
-- unittest
-- nose2
-- And more as needed
-
-### Go
-- go test (standard library testing)
+The Adapter Registry supports adapters for the following test frameworks:
 
 ### Rust
 - cargo test (standard library testing)
 
-### Java
-- JUnit (via Maven/Gradle)
-
-### Ruby
-- RSpec
-- Minitest
-
 ### Bash/Shell
 - BATS (Bash Automated Testing System)
-
-### Future Frameworks
-- Additional frameworks can be added through adapter registration
 
 ## Adapter Metadata
 
@@ -302,7 +253,7 @@ Each adapter provides metadata that describes its capabilities and requirements:
 ```typescript
 {
   name: string,                    // Human-readable framework name
-  identifier: string,              // Unique identifier (e.g., "bats", "jest")
+  identifier: string,              // Unique identifier (e.g., "bats", "rust")
   version: string,                 // Adapter version
   supported_languages: string[],  // Languages supported (e.g., ["bash", "shell"])
   capabilities: string[],          // Capabilities (e.g., ["parallel", "coverage"])
@@ -457,12 +408,7 @@ The Rust adapter implements:
 
 ### Future Adapters
 
-Additional adapters will follow the same interface pattern:
-
-- **Jest Adapter**: Detects Jest config, discovers test files, executes `npm test` or `jest`
-- **pytest Adapter**: Detects pytest config, discovers test files, executes `pytest`
-- **Go Adapter**: Detects `go.mod`, discovers test files, executes `go test`
-- And more as needed
+Additional adapters will follow the same interface pattern as the BATS and Rust adapters.
 
 ## Integration Points
 

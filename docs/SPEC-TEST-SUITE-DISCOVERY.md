@@ -39,7 +39,7 @@ Test Suite Discovery operates as part of the main suitey process:
 
 - **Adapter Registry**: Test Suite Discovery uses framework adapters (via Adapter Registry) to find test files. Each adapter implements framework-specific discovery logic that Test Suite Discovery coordinates.
 
-- **Build System Detector**: Test Suite Discovery results may inform build system detection, as some test suites may require specific build artifacts before execution.
+- **Build System Detector**: Build System Detection operates after Test Suite Discovery completes. Build System Detection uses framework adapters to determine build requirements per framework, which may be informed by the discovered test suites.
 
 ## Discovery Process
 
@@ -53,8 +53,8 @@ The discovery process follows this sequential workflow:
 2. **Test Suite Discovery Phase** (orchestrated by Project Scanner):
    - For **each** detected framework, Project Scanner uses the framework's adapter to discover test files
    - Each adapter implements framework-specific discovery logic using:
-     - Test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
-     - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
+     - Test directory patterns (`./test/`, `./tests/`, etc.)
+     - File naming patterns: `test_*.*`, `*_test.*`, etc.
      - Framework-specific patterns (e.g., `#[cfg(test)]` for Rust, `@test` for BATS)
    - Test files are grouped into distinct test suites (by framework, directory, or file)
    - Test counts are calculated for each suite
@@ -73,19 +73,13 @@ Test Suite Discovery uses multiple heuristics to identify test files, implemente
 Scans for common test directory patterns:
 - `./test/`
 - `./tests/`
-- `./__tests__/`
-- `./spec/`
-- `./specs/`
-- Framework-specific patterns (e.g., `./src/test/` for Java, `./tests/bats/` for BATS)
+- Framework-specific patterns (e.g., `./tests/bats/` for BATS)
 
 ### 2. File Naming Patterns
 
 Identifies test files through naming conventions:
-- `test_*.*` (e.g., `test_user.py`, `test_utils.js`)
-- `*_test.*` (e.g., `user_test.go`, `utils_test.rs`)
-- `*_spec.*` (e.g., `user_spec.rb`, `utils_spec.js`)
-- `*-test.*` (e.g., `user-test.ts`)
-- `*-spec.*` (e.g., `utils-spec.js`)
+- `test_*.*` (e.g., `test_utils.rs`)
+- `*_test.*` (e.g., `utils_test.rs`)
 - `*.bats` - BATS test files (e.g., `suitey.bats`, `utils.bats`)
 
 ### 3. Framework-Specific Patterns
@@ -94,12 +88,6 @@ Each framework adapter implements framework-specific discovery patterns:
 
 - **BATS**: Discovers `.bats` files in common test directories (`./tests/bats/`, `./test/bats/`, etc.)
 - **Rust**: Discovers unit tests in `src/` (files with `#[cfg(test)]` modules) and integration tests in `tests/` directory
-- **JavaScript/TypeScript**: Discovers test files using framework-specific patterns (Jest, Mocha, Vitest, etc.)
-- **Python**: Discovers test files using pytest/unittest patterns
-- **Go**: Discovers test files using `*_test.go` naming convention
-- **Java**: Discovers test files in `src/test/` directory structure
-- **Ruby**: Discovers test files using RSpec/Minitest patterns
-- And more as needed
 
 ## Framework-Specific Discovery Details
 
@@ -131,37 +119,12 @@ Rust test files are discovered through:
 
 **Suite Grouping**: Each `.rs` file with tests becomes a separate test suite
 
-### JavaScript/TypeScript Discovery
-
-JavaScript/TypeScript test files are discovered through framework-specific patterns:
-
-1. **Jest**: Files in `__tests__/` directories or files matching `*.test.js`, `*.test.ts`, `*.spec.js`, `*.spec.ts`
-2. **Mocha**: Files matching `test/*.js`, `test/**/*.js` patterns
-3. **Vitest**: Files matching configured test patterns (typically `*.test.ts`, `*.spec.ts`)
-4. **Jasmine**: Files matching `*.spec.js` patterns
-
-**Test Counting**: Framework-specific (e.g., Jest uses `test()` or `it()` calls, Mocha uses `describe()`/`it()`)
-
-**Suite Grouping**: Framework-specific (may group by directory or file)
-
-### Python Discovery
-
-Python test files are discovered through:
-
-1. **pytest**: Files matching `test_*.py`, `*_test.py` patterns
-2. **unittest**: Files matching `test_*.py` patterns in test directories
-3. **nose2**: Files matching test patterns in configured directories
-
-**Test Counting**: Counts test methods (functions starting with `test_` or classes inheriting from `unittest.TestCase`)
-
-**Suite Grouping**: Typically by file or test class
-
 ## Suite Identification and Grouping
 
 Test files are grouped into distinct test suites using one of these strategies:
 
 1. **By File**: Each test file becomes a separate test suite (common for BATS, Rust integration tests)
-2. **By Directory**: All test files in a directory become one suite (common for some JavaScript frameworks)
+2. **By Directory**: All test files in a directory become one suite
 3. **By Framework**: All test files for a framework become one suite (less common, typically used for simple projects)
 
 The grouping strategy is determined by the framework adapter based on framework conventions and project structure.
@@ -172,11 +135,6 @@ Each framework adapter implements test counting logic specific to its framework:
 
 - **BATS**: Counts `@test` annotations
 - **Rust**: Counts `#[test]` function annotations
-- **JavaScript/TypeScript**: Counts test functions (framework-specific: `test()`, `it()`, `describe()` blocks)
-- **Python**: Counts test methods or test functions
-- **Go**: Counts `Test*` functions
-- **Java**: Counts `@Test` annotated methods
-- **Ruby**: Counts test methods or `it` blocks
 
 Test counts are included in suite metadata and used for reporting and progress tracking.
 
@@ -274,18 +232,12 @@ Test Suite Discovery is designed to be extensible:
 
 ## Framework-Agnostic Approach
 
-Test Suite Discovery works across multiple languages and frameworks:
+Test Suite Discovery works with the following frameworks:
 
-- JavaScript/TypeScript (Jest, Mocha, Vitest, Jasmine, etc.)
-- Python (pytest, unittest, nose2)
-- Go (go test)
 - Rust (cargo test)
-- Java (JUnit via Maven/Gradle)
-- Ruby (RSpec, Minitest)
 - Bash/Shell (BATS - Bash Automated Testing System)
-- And more as needed
 
-Each framework adapter implements framework-specific discovery logic, enabling Suitey to work with any test framework without hardcoding framework-specific patterns in the core discovery component.
+Each framework adapter implements framework-specific discovery logic, enabling Suitey to work with these test frameworks without hardcoding framework-specific patterns in the core discovery component.
 
 ## BATS-Specific Considerations
 
