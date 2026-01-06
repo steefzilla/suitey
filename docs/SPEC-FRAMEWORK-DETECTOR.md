@@ -57,25 +57,13 @@ Each framework adapter may use multiple heuristics to detect framework presence:
 #### Configuration File Presence
 - Framework-specific configuration files indicate framework usage
 - Examples:
-  - `jest.config.js`, `jest.config.ts` - Jest
-  - `pytest.ini`, `setup.cfg`, `pyproject.toml` - pytest
-  - `vitest.config.*` - Vitest
-  - `mocha.opts`, `.mocharc.*` - Mocha
   - `Cargo.toml` - Rust
   - `.bats` file extension - BATS
-  - And more as needed
 
 #### Package Manager Files
 - Package manager configuration files indicate project type and may list framework dependencies
 - Examples:
-  - `package.json` - JavaScript/TypeScript (may list Jest, Mocha, Vitest, etc.)
   - `Cargo.toml` - Rust
-  - `go.mod` - Go
-  - `pom.xml` - Java (Maven)
-  - `build.gradle` - Java (Gradle)
-  - `requirements.txt`, `setup.py`, `pyproject.toml` - Python
-  - `Gemfile` - Ruby
-  - And more as needed
 
 #### Directory Structure Patterns
 - Framework-specific directory layouts indicate framework usage
@@ -83,27 +71,18 @@ Each framework adapter may use multiple heuristics to detect framework presence:
   - `./tests/bats/` - BATS
   - `./src/` with `#[cfg(test)]` modules - Rust
   - `./tests/` with `.rs` files - Rust integration tests
-  - `./__tests__/` - Jest
-  - `./spec/` - RSpec, Jasmine
-  - And more as needed
 
 #### File Naming Patterns
 - Framework-specific file naming conventions
 - Examples:
   - `*.bats` - BATS test files
   - `*_test.rs` - Rust test files
-  - `test_*.py` - pytest test files
-  - `*.test.js` - Jest test files
-  - And more as needed
 
 #### Binary Availability
 - Presence of framework executables indicates framework availability
 - Examples:
   - `bats` command - BATS framework
   - `cargo` command - Rust framework
-  - `npm`, `yarn`, `pnpm` - Node.js frameworks
-  - `pytest` command - pytest framework
-  - And more as needed
 
 ### 3. Detection Process
 
@@ -119,39 +98,13 @@ The Framework Detector follows this process:
 
 ## Supported Frameworks
 
-The Framework Detector supports detection of multiple test frameworks across different languages:
-
-### JavaScript/TypeScript
-- Jest
-- Mocha
-- Vitest
-- Jasmine
-- And more as needed
-
-### Python
-- pytest
-- unittest
-- nose2
-- And more as needed
-
-### Go
-- go test (standard library testing)
+The Framework Detector supports detection of the following test frameworks:
 
 ### Rust
 - cargo test (standard library testing)
 
-### Java
-- JUnit (via Maven/Gradle)
-
-### Ruby
-- RSpec
-- Minitest
-
 ### Bash/Shell
 - BATS (Bash Automated Testing System)
-
-### Future Frameworks
-- Additional frameworks can be added through the adapter system
 
 ## Detection Results
 
@@ -321,15 +274,7 @@ Rust framework is detected through:
 
 ### Future Framework Detection
 
-Additional frameworks will be detected through their respective adapters:
-
-- **JavaScript/TypeScript**: Detection via `package.json`, framework config files, and binary availability
-- **Python**: Detection via `requirements.txt`, `setup.py`, `pyproject.toml`, and binary availability
-- **Go**: Detection via `go.mod` and test file patterns
-- **Java**: Detection via `pom.xml`, `build.gradle`, and test directory patterns
-- **Ruby**: Detection via `Gemfile` and test file patterns
-
-Each framework adapter implements its own detection logic following the adapter interface.
+Additional frameworks will be detected through their respective adapters following the same interface pattern as the BATS and Rust adapters.
 
 ## Output Format
 

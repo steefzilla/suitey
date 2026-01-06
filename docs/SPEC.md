@@ -65,8 +65,8 @@ Several tools address parts of Suitey's functionality, but none provide the comp
 
 ## Requirements
 
-- Docker and docker-compose are required for containerized builds and test execution
-- Framework-specific tools are detected and used automatically (e.g., `npm`, `pytest`, `go test`, `cargo test`, `maven`, `gradle`, etc.)
+- Docker is required for containerized builds and test execution
+- Framework-specific tools are detected and used automatically (e.g., `bats`, `cargo`, etc.)
 - Build tools are automatically detected and used when projects require building before testing
 
 ## Core Functionality
@@ -76,28 +76,28 @@ The core functionality follows a clear workflow: **Framework Detection** → **T
 1. **Framework Detection & Adapter System**
    - Automatically detects which test frameworks are present in the project using framework adapters
    - Each framework adapter implements detection logic using heuristics:
-     - Package manager files (`package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, etc.)
-     - Framework-specific configuration files (`jest.config.js`, `pytest.ini`, `Cargo.toml`, etc.)
+     - Package manager files (`Cargo.toml`, etc.)
+     - Framework-specific configuration files (`Cargo.toml`, etc.)
      - Directory structure patterns and file extensions
-   - Verifies that required framework tools are available (e.g., `bats`, `cargo`, `npm`)
+   - Verifies that required framework tools are available (e.g., `bats`, `cargo`)
    - Returns a list of detected frameworks with metadata for downstream use
    - Falls back gracefully if framework-specific tools are not available
 
 2. **Test Suite Discovery**
    - After frameworks are detected, discovers test files and groups them into test suites
    - Uses framework adapters to find test files through framework-specific heuristics:
-     - Test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
-     - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
+     - Test directory patterns (`./test/`, `./tests/`, etc.)
+     - File naming patterns: `test_*.*`, `*_test.*`, etc.
      - Framework-specific patterns (e.g., `#[cfg(test)]` for Rust, `@test` for BATS)
    - Each test suite is identifiable as a distinct unit (by framework, directory, or file)
-   - Framework-agnostic: works with JavaScript/TypeScript, Python, Go, Rust, Java, Ruby, and more
+   - Framework-agnostic: works with Rust and BATS
 
 3. **Build System Detection & Automation**
    - Automatically detects if a project requires building before tests can run
    - Uses framework adapters to determine build requirements per framework:
-     - Build configuration files (`Makefile`, `CMakeLists.txt`, `Dockerfile`, `docker-compose.yml`, etc.)
-     - Package manager build scripts (`package.json` scripts, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, etc.)
-     - Source code patterns indicating compilation needs (TypeScript, compiled languages, etc.)
+     - Build configuration files (`Makefile`, `CMakeLists.txt`, `Dockerfile`, etc.)
+     - Package manager build scripts (`Cargo.toml`, etc.)
+     - Source code patterns indicating compilation needs (compiled languages, etc.)
    - Automatically executes build steps in containerized environments before running tests
    - Build process:
      1. Uses base images with mounted volumes for building
@@ -111,20 +111,15 @@ The core functionality follows a clear workflow: **Framework Detection** → **T
 
 4. **Test Execution**
    - Uses framework adapters to execute tests with appropriate test runners:
-     - JavaScript/TypeScript: `npm test`, `yarn test`, `pnpm test`, `jest`, `mocha`, `vitest`, etc.
-     - Python: `pytest`, `unittest`, `nose2`, etc.
-     - Go: `go test` (may include build step)
      - Rust: `cargo test` (includes build step)
-     - Java: `mvn test`, `gradle test` (includes compile step)
-     - Ruby: `rspec`, `minitest`
-     - And more as needed
+     - BATS: `bats <test-file>` (no build step required)
 
 5. **Parallel Execution**
    - Runs all discovered test suites in parallel by default
    - Manages concurrent execution of multiple test processes
    - Handles process lifecycle and cleanup
    - Limits number of processes by number of CPU cores available
-   - Each suite runs in isolation (native process or Docker container as appropriate)
+   - Each suite runs in isolation in Docker containers
 
 6. **Single Suite Execution**
    - Option to run a single test suite
@@ -217,7 +212,7 @@ The architecture follows a hierarchical orchestration pattern:
    - Framework detection results inform both Test Suite Discovery and Build System Detection
 
 3. **Adapter Registry** is a shared component:
-   - Maintains a registry of framework adapters (BATS, Rust, Jest, pytest, etc.)
+   - Maintains a registry of framework adapters (BATS, Rust)
    - Provides framework-specific detection, discovery, and execution logic
    - Used by Framework Detector, Project Scanner and Build System Detector to coordinate adapter-based detection
    - Each adapter implements detection, discovery, build detection, and execution methods
@@ -246,7 +241,7 @@ The architecture follows a hierarchical orchestration pattern:
 
 5. **Graceful Degradation**: If a framework's tools aren't available, Suitey skips that framework and continues with others.
 
-6. **Containerized Execution**: Docker and docker-compose are used for:
+6. **Containerized Execution**: Docker is used for:
    - Building projects in isolated, reproducible environments
    - Running tests in containers with consistent dependencies
    - Ensuring cross-platform compatibility
@@ -263,8 +258,7 @@ The architecture follows a hierarchical orchestration pattern:
 ### External Dependencies
 
 - **Docker**: Required for containerized builds and test execution. Must be installed and available.
-- **docker-compose**: Required for multi-container builds and complex test environments. Must be installed and available.
-- **Framework-Specific Tools**: Detected automatically and used within containers as needed (e.g., `npm`, `pytest`, `go`, `cargo`, `maven`, `gradle`, etc.)
+- **Framework-Specific Tools**: Detected automatically and used within containers as needed (e.g., `bats`, `cargo`, etc.)
 
 ### Implementation Dependencies
 
@@ -292,7 +286,7 @@ The execution follows a sequential workflow orchestrated by Project Scanner:
    - Test containers use these pre-built images (self-contained, no volume dependencies)
    - Build steps can run in parallel when multiple independent builds are detected
 
-5. **Execution Phase**: Test suites run in Docker containers using their native test runners. Each framework adapter determines the execution method (Docker container, docker-compose orchestration, etc.) and parses output to extract structured results.
+5. **Execution Phase**: Test suites run in Docker containers using their native test runners. Each framework adapter determines the execution method (Docker container, etc.) and parses output to extract structured results.
 
 ### Framework Adapters
 
@@ -305,19 +299,13 @@ Framework adapters are the core abstraction that enables framework-agnostic test
 - **Execution**: Runs tests using the framework's native tools in containers
 - **Parsing**: Extracts test results (counts, status, output) from framework output
 
-Supported frameworks (examples, expandable):
-- JavaScript/TypeScript: Jest, Mocha, Vitest, Jasmine, etc.
-- Python: pytest, unittest, nose2
-- Go: go test
+Supported frameworks:
 - Rust: cargo test
-- Java: JUnit (via Maven/Gradle)
-- Ruby: RSpec, Minitest
 - Bash/Shell: BATS
-- And more as needed
 
 ### Containerized Execution
 
-- Test suites run in Docker containers using their native test runners (e.g., `npm test`, `pytest`, `go test`)
+- Test suites run in Docker containers using their native test runners (e.g., `cargo test`, `bats`)
 - Builds execute in Docker containers to ensure:
   - Consistent build environments across platforms
   - Proper dependency isolation
@@ -442,7 +430,7 @@ Reports are generated as standalone HTML files with embedded CSS and JavaScript 
        - Build artifacts (compiled binaries, generated files, etc.)
        - Source code
        - Test suites
-     - Generate Dockerfile and docker-compose configuration for test containers
+     - Generate Dockerfile for test containers
    - Wait for all required builds to complete before proceeding
    - Report build failures immediately and abort test execution
 
@@ -457,7 +445,7 @@ Reports are generated as standalone HTML files with embedded CSS and JavaScript 
      - Records start time
      - Uses pre-built test image (containing artifacts, source, and tests) or base image (if no build required)
      - Test containers start with everything ready (no volume mounting needed)
-     - Executes using framework adapter's execution method (Docker container, docker-compose, etc.)
+     - Executes using framework adapter's execution method (Docker container, etc.)
      - Captures exit code from container
      - Calculates duration
      - Extracts test counts from output (using adapter's parser)

@@ -47,8 +47,8 @@ The discovery process follows this workflow:
 2. **Test Suite Discovery Phase** (orchestrated by Project Scanner):
    - For each detected framework, Project Scanner uses the framework's adapter to discover test files
    - Each adapter implements framework-specific discovery logic using:
-     - Test directory patterns (`./test/`, `./tests/`, `./__tests__/`, `./spec/`, etc.)
-     - File naming patterns: `test_*.*`, `*_test.*`, `*_spec.*`, `*-test.*`, `*-spec.*`
+     - Test directory patterns (`./test/`, `./tests/`, etc.)
+     - File naming patterns: `test_*.*`, `*_test.*`, etc.
      - Framework-specific patterns (e.g., `#[cfg(test)]` for Rust, `@test` for BATS)
    - Test files are grouped into distinct test suites (by framework, directory, or file)
 
@@ -58,21 +58,12 @@ Each framework adapter implements discovery logic specific to its framework:
 
 - **BATS**: Discovers `.bats` files in common test directories (`./tests/bats/`, `./test/bats/`, etc.)
 - **Rust**: Discovers unit tests in `src/` (files with `#[cfg(test)]`) and integration tests in `tests/`
-- **JavaScript/TypeScript**: Discovers test files using framework-specific patterns (Jest, Mocha, Vitest, etc.)
-- **Python**: Discovers test files using pytest/unittest patterns
-- And more as needed
 
 ### Framework-Agnostic Approach
 
-The scanner works across multiple languages and frameworks:
-- JavaScript/TypeScript (Jest, Mocha, Vitest, Jasmine, etc.)
-- Python (pytest, unittest, nose2)
-- Go (go test)
+The scanner works with the following frameworks:
 - Rust (cargo test)
-- Java (JUnit via Maven/Gradle)
-- Ruby (RSpec, Minitest)
 - Bash/Shell (BATS - Bash Automated Testing System)
-- And more as needed
 
 ## Framework Detection Coordination
 
@@ -99,20 +90,13 @@ The scanner detects build requirements through:
 - `Makefile` - Make-based builds
 - `CMakeLists.txt` - CMake builds
 - `Dockerfile` - Docker-based builds
-- `docker-compose.yml` - Multi-container builds
 - `build.sh`, `build.bat` - Custom build scripts
 
 #### 2. Package Manager Build Scripts
-- `package.json` scripts (e.g., `"build": "tsc"`)
 - `Cargo.toml` build configuration
-- `go.mod` (Go builds are often implicit in `go test`)
-- `pom.xml` Maven build configuration
-- `build.gradle` Gradle build configuration
 
 #### 3. Source Code Patterns
-- TypeScript files (`.ts`) indicating compilation needs
 - Compiled languages requiring build steps
-- Transpiled languages (CoffeeScript, Babel, etc.)
 
 ### Build Detection Process
 
@@ -123,13 +107,8 @@ The scanner detects build requirements through:
 
 ### Build Requirements by Framework
 
-- **TypeScript/JavaScript**: `npm run build`, `yarn build`, `tsc`, etc.
-- **Go**: `go build` (often implicit in `go test`)
 - **Rust**: `cargo build` (often implicit in `cargo test`)
-- **Java**: `mvn compile`, `gradle build`
-- **C/C++**: `make`, `cmake`, custom build scripts
 - **BATS**: Typically no build required (bash scripts are interpreted), but may need `bats` binary installation
-- And more as needed
 
 ## Integration with Adapter System
 
