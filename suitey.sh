@@ -138,6 +138,1226 @@ count_tests_in_file() {
 
 
 # ============================================================================
+# Source: src/json_helpers.sh
+# ============================================================================
+# ============================================================================
+# JSON Helper Functions
+# ============================================================================
+# Standardized JSON operations using jq, with consistent error handling
+# and performance optimizations for repeated use.
+#
+
+# ============================================================================
+# Core JSON Access Functions
+# ============================================================================
+
+# Extract a value from JSON using a jq path
+# Arguments:
+#   json: JSON string
+#   path: jq path expression (e.g., '.field', '.array[0]')
+# Returns:
+#   Extracted value as string, or empty string on error
+json_get() {
+	local json="$1"
+	local path="$2"
+
+	# Validate inputs
+	if [[ -z "$json" ]] || [[ -z "$path" ]]; then
+	return 1
+	fi
+
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
+
+	echo "$json" | jq -r "$path" 2>/dev/null || return 1
+}
+
+# Extract an array from JSON as a newline-separated string
+# Arguments:
+#   json: JSON string
+#   path: jq path to array (e.g., '.items', '.array')
+# Returns:
+#   Array elements one per line, or empty on error
+json_get_array() {
+	local json="$1"
+	local path="$2"
+
+	if [[ -z "$json" ]] || [[ -z "$path" ]]; then
+	return 1
+	fi
+
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
+
+	echo "$json" | jq -r "$path[]?" 2>/dev/null || return 1
+}
+
+# Get the length of a JSON array
+# Arguments:
+#   json: JSON string
+# Returns:
+#   Array length as integer, or 0 on error
+json_array_length() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+	echo "0"
+	return 1
+	fi
+
+	echo "$json" | jq 'length' 2>/dev/null || echo "0"
+}
+
+# Get an element from a JSON array by index
+# Arguments:
+#   json: JSON string
+#   index: Array index (0-based)
+# Returns:
+#   Array element as string, or empty on error
+json_array_get() {
+	local json="$1"
+	local index="$2"
+
+	if [[ -z "$json" ]] || ! [[ "$index" =~ ^[0-9]+$ ]]; then
+	return 1
+	fi
+
+	echo "$json" | jq -r ".[$index]" 2>/dev/null || return 1
+}
+
+# Check if a JSON object has a specific field
+# Arguments:
+#   json: JSON string
+#   field: Field name to check
+# Returns:
+#   0 if field exists, 1 if not
+json_has_field() {
+	local json="$1"
+	local field="$2"
+
+	if [[ -z "$json" ]] || [[ -z "$field" ]]; then
+	return 1
+	fi
+
+	# Strip REGISTRY_END and other markers that might pollute JSON output
+	json="${json%%REGISTRY_END*}"
+	json="${json%%CAPABILITIES_END*}"
+	json="${json%%ORDER_END*}"
+	json="${json#*REGISTRY_START}"
+	json="${json#*CAPABILITIES_START}"
+	json="${json#*ORDER_START}"
+
+	echo "$json" | jq -e "has(\"$field\")" >/dev/null 2>&1
+}
+
+# ============================================================================
+# JSON Modification Functions
+# ============================================================================
+
+# Set a value in JSON (creates new JSON with updated value)
+# Arguments:
+#   json: Original JSON string
+#   path: jq path to set
+#   value: New value (will be JSON-encoded)
+# Returns:
+#   Updated JSON string, or original on error
+json_set() {
+	local json="$1"
+	local path="$2"
+	local value="$3"
+
+	if [[ -z "$json" ]] || [[ -z "$path" ]]; then
+	echo "$json"
+	return 1
+	fi
+
+	echo "$json" | jq "$path = $value" 2>/dev/null || echo "$json"
+}
+
+# Append a value to a JSON array
+# Arguments:
+#   json: JSON array string
+#   value: Value to append (will be JSON-encoded)
+# Returns:
+#   Updated JSON array, or original on error
+json_array_append() {
+	local json="$1"
+	local value="$2"
+
+	if [[ -z "$json" ]]; then
+	echo "[$value]"
+	return
+	fi
+
+	echo "$json" | jq ". += [$value]" 2>/dev/null || echo "$json"
+}
+
+# Merge two JSON objects or arrays
+# Arguments:
+#   json1: First JSON string
+#   json2: Second JSON string
+# Returns:
+#   Merged JSON, or json1 on error
+json_merge() {
+	local json1="$1"
+	local json2="$2"
+
+	if [[ -z "$json1" ]]; then
+	echo "$json2"
+	return
+	fi
+
+	if [[ -z "$json2" ]]; then
+	echo "$json1"
+	return
+	fi
+
+	echo "$json1 $json2" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$json1"
+}
+
+# ============================================================================
+# JSON Validation Functions
+# ============================================================================
+
+# Validate that a string is valid JSON
+# Arguments:
+#   json: String to validate
+# Returns:
+#   0 if valid JSON, 1 if invalid
+json_validate() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+	return 1
+	fi
+
+	echo "$json" | jq . >/dev/null 2>&1
+}
+
+# Check if JSON represents an array
+# Arguments:
+#   json: JSON string
+# Returns:
+#   0 if array, 1 if not
+json_is_array() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+	return 1
+	fi
+
+	echo "$json" | jq -e 'type == "array"' >/dev/null 2>&1
+}
+
+# Check if JSON represents an object
+# Arguments:
+#   json: JSON string
+# Returns:
+#   0 if object, 1 if not
+json_is_object() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+	return 1
+	fi
+
+	echo "$json" | jq -e 'type == "object"' >/dev/null 2>&1
+}
+
+# ============================================================================
+# Array ↔ JSON Conversion Functions
+# ============================================================================
+
+# Convert a JSON array to a Bash array
+# Arguments:
+#   json: JSON array string
+# Returns:
+#   Returns: first line = count, subsequent lines = array elements (one per line)
+#
+# PATTERN: Return-Data Approach
+# This function uses the return-data pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array using json_populate_array_from_output().
+#
+# Usage example:
+#   output=$(json_to_array "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
+json_to_array() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+		echo "0"
+		return 1
+	fi
+
+	# Validate input and get elements
+	local elements
+	if ! elements=$(echo "$json" | jq -r '.[]' 2>/dev/null); then
+		echo "0"
+		return 1
+	fi
+
+	# Count elements (handle empty case - jq returns nothing, echo adds newline)
+	local count
+	if [[ -z "$elements" ]]; then
+		count=0
+	else
+		count=$(echo "$elements" | wc -l | tr -d ' ')
+	fi
+
+	# Output count first, then elements
+	echo "$count"
+	echo "$elements"
+
+	return 0
+}
+
+# Convert a Bash array to JSON array
+# Arguments:
+#   var_name: Name of Bash array variable
+# Returns:
+#   JSON array string
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
+array_to_json() {
+	local var_name="$1"
+
+	if [[ -z "$var_name" ]]; then
+	echo "[]"
+	return 1
+	fi
+
+	local -n arr="$var_name"
+	local json_items=()
+
+	for item in "${arr[@]}"; do
+	# Escape the item for JSON
+	local escaped_item
+	escaped_item=$(json_escape "$item")
+	json_items+=("\"$escaped_item\"")
+	done
+
+	local joined
+	joined=$(IFS=','; echo "${json_items[*]}")
+	echo "[$joined]"
+}
+
+# Convert an associative array to JSON object
+# Arguments:
+#   var_name: Name of Bash associative array variable
+# Returns:
+#   JSON object string
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read associative array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
+assoc_array_to_json() {
+	local var_name="$1"
+
+	if [[ -z "$var_name" ]]; then
+	echo "{}"
+	return 1
+	fi
+
+	local -n assoc_arr="$var_name"
+	local json_pairs=()
+
+	for key in "${!assoc_arr[@]}"; do
+	local escaped_key
+	escaped_key=$(json_escape "$key")
+	local escaped_value
+	escaped_value=$(json_escape "${assoc_arr[$key]}")
+	json_pairs+=("\"$escaped_key\":\"$escaped_value\"")
+	done
+
+	local joined
+	joined=$(IFS=','; echo "${json_pairs[*]}")
+	echo "{$joined}"
+}
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+# Escape a string for use in JSON
+# Arguments:
+#   string: String to escape
+# Returns:
+#   Escaped string
+json_escape() {
+	local string="$1"
+
+	# Escape backslashes first, then quotes
+	string="${string//\\/\\\\}"
+	string="${string//\"/\\\"}"
+	string="${string//$'\n'/\\n}"
+	string="${string//$'\r'/\\r}"
+	string="${string//$'\t'/\\t}"
+
+	echo "$string"
+}
+
+# ============================================================================
+# Specialized Conversion Functions (for Suitey data structures)
+# ============================================================================
+
+# Convert build requirements JSON to Bash array structure
+# Arguments:
+#   json: Build requirements JSON array
+# Returns:
+#   Returns: first line = count, subsequent lines = JSON requirement strings
+#
+# PATTERN: Return-Data Approach
+# This function uses the return-data pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array using json_populate_array_from_output().
+#
+# Usage example:
+#   output=$(build_requirements_json_to_array "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
+build_requirements_json_to_array() {
+	local json="$1"
+
+	if [[ -z "$json" ]]; then
+		echo "0"
+		return 1
+	fi
+
+	# Validate input
+	if ! json_validate "$json" || ! json_is_array "$json"; then
+		echo "0"
+		return 1
+	fi
+
+	# Get array length
+	local total_count
+	total_count=$(json_array_length "$json")
+
+	# Count and output non-null requirements
+	local count=0
+	for ((i=0; i<total_count; i++)); do
+		local req_json
+		req_json=$(json_array_get "$json" "$i")
+		if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
+			((++count))  # Use pre-increment to avoid 0 evaluation issue with set -e
+		fi
+	done
+
+	# Output count first
+	echo "$count"
+
+	# Extract each requirement and output (compacted to single line)
+	for ((i=0; i<total_count; i++)); do
+		local req_json
+		req_json=$(json_array_get "$json" "$i")
+		if [[ -n "$req_json" ]] && [[ "$req_json" != "null" ]]; then
+			# Compact JSON to single line for easier parsing
+			echo "$req_json" | jq -c .
+		fi
+	done
+
+	return 0
+}
+
+# ============================================================================
+# Return-Data Pattern Helper Function
+# ============================================================================
+#
+# Helper function to populate a Bash array from return-data format
+# This is a reusable pattern for functions that return data instead of modifying
+# arrays directly (to avoid BATS scoping issues).
+#
+# Arguments:
+#   array_name: Name of Bash array variable to populate
+#   output: Output from a return-data function (first line is count, rest are array elements)
+# Returns:
+#   Populates the named array and returns the count
+#
+# Usage example:
+#   output=$(_json_to_array_return_data "$json")
+#   count=$(json_populate_array_from_output "my_array" "$output")
+json_populate_array_from_output() {
+	local array_name="$1"
+	local output="$2"
+
+	local count
+	count=$(echo "$output" | head -n 1)
+
+	# Populate array from remaining lines (only if count > 0)
+	if [[ "$count" -gt 0 ]]; then
+		# Unset any local declaration first, then declare as global
+		# This allows us to modify arrays even if caller declared them locally
+		eval "unset ${array_name} 2>/dev/null || true"
+		eval "declare -g -a ${array_name}"
+		# Populate using eval (to avoid BATS scoping issues with nameref)
+		# Use printf %q for safe quoting (matches pattern from shell.bats tests)
+		local idx=0
+		while IFS= read -r element; do
+			[[ -z "$element" ]] && continue
+			local safe_element
+			safe_element=$(printf '%q' "$element")
+			# For indexed arrays, use numeric index (no quotes needed) and safe_element
+			eval "${array_name}[$idx]=$safe_element"
+			((++idx))  # Use pre-increment to avoid 0 evaluation issue with set -e
+		done < <(echo "$output" | tail -n +2)
+	fi
+
+	echo "$count"
+	return 0
+}
+
+# Convert dependency analysis associative array to JSON
+# Arguments:
+#   var_name: Name of associative array variable
+# Returns:
+#   JSON object with tier information
+#
+# PATTERN: Read-Only Nameref (acceptable)
+# This function uses nameref only to read associative array values, not to modify them.
+# Read-only nameref is acceptable and does not cause scoping issues.
+dependency_analysis_array_to_json() {
+	local var_name="$1"
+
+	if [[ -z "$var_name" ]]; then
+	echo "{}"
+	return 1
+	fi
+
+	local -n analysis="$var_name"
+	local json="{"
+
+	# Add each key-value pair
+	local first=true
+	for key in "${!analysis[@]}"; do
+	if [[ "$first" == "true" ]]; then
+	first=false
+	else
+	json="${json},"
+	fi
+
+	local escaped_key
+	escaped_key=$(json_escape "$key")
+	local escaped_value
+	escaped_value=$(json_escape "${analysis[$key]}")
+
+	json="${json}\"$escaped_key\":\"$escaped_value\""
+	done
+
+	json="${json}}"
+	echo "$json"
+}
+
+# Convert framework detection results to JSON (used by detect_frameworks)
+# Arguments:
+#   frameworks_array: Array of detected framework names
+#   details_map: Associative array of framework details
+#   binary_map: Associative array of binary status
+#   warnings_array: Array of warning messages
+#   errors_array: Array of error messages
+# Returns:
+#   Complete JSON detection results object
+framework_detection_results_to_json() {
+	local frameworks_array="$1"
+	local details_map="$2"
+	local binary_map="$3"
+	local warnings_array="$4"
+	local errors_array="$5"
+
+	local frameworks_json
+	frameworks_json=$(array_to_json "$frameworks_array")
+
+	local details_json
+	details_json=$(assoc_array_to_json "$details_map")
+
+	local binary_json
+	binary_json=$(assoc_array_to_json "$binary_map")
+
+	local warnings_json
+	warnings_json=$(array_to_json "$warnings_array")
+
+	local errors_json
+	errors_json=$(array_to_json "$errors_array")
+
+	# documented: Outputting framework detection results as JSON
+	echo "{\"framework_list\":$frameworks_json,\"framework_details\":$details_json," \
+		"\"binary_status\":$binary_json,\"warnings\":$warnings_json,\"errors\":$errors_json}"
+}
+
+# ============================================================================
+# Caching and Performance Functions (Phase 4)
+# ============================================================================
+
+# Cache for frequently accessed JSON values
+declare -A JSON_CACHE=()
+
+# Get a cached JSON value
+# Arguments:
+#   cache_key: Unique key for this JSON+path combination
+#   json: JSON string
+#   path: jq path
+# Returns:
+#   Cached value if available, otherwise computed value
+json_get_cached() {
+	local cache_key="$1"
+	local json="$2"
+	local path="$3"
+
+	# Check cache first
+	if [[ -v JSON_CACHE["$cache_key"] ]]; then
+	echo "${JSON_CACHE["$cache_key"]}"
+	return 0
+	fi
+
+	# Compute and cache
+	local value
+	value=$(json_get "$json" "$path")
+	local exit_code=$?
+
+	if [[ $exit_code -eq 0 ]]; then
+	JSON_CACHE["$cache_key"]="$value"
+	fi
+
+	echo "$value"
+	return $exit_code
+}
+
+# Clear the JSON cache (useful for memory management)
+json_clear_cache() {
+	JSON_CACHE=()
+}
+
+# ============================================================================
+# Source: src/adapter_registry_helpers.sh
+# ============================================================================
+# ============================================================================
+# Adapter Registry Helper Functions
+# ============================================================================
+#
+
+# ============================================================================
+# Variable Declarations (for set -u compatibility)
+# ============================================================================
+# Declare variables early to prevent "unbound variable" errors when set -u is enabled
+# These are declared here as a safety measure, even though they're also declared in adapter_registry.sh
+# This ensures the variables exist if adapter_registry_helpers.sh is sourced before adapter_registry.sh
+# Use eval to avoid errors if variable is already declared
+eval "declare -A ADAPTER_REGISTRY_CAPABILITIES 2>/dev/null || true" || true
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+# ============================================================================
+# Return-Data Pattern Helper Function
+# ============================================================================
+#
+# Helper function to populate an associative array from return-data format
+# This is a reusable pattern for functions that return data instead of modifying
+# arrays directly (to avoid BATS scoping issues).
+#
+# PATTERN: Return-Data Approach
+# This helper implements the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, functions return data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Arguments:
+#   array_name: Name of associative array to populate
+#   output: Output from a return-data function (first line is count, rest are key=value)
+# Returns:
+#   Populates the named array and returns the count
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(_adapter_registry_populate_array_from_output "array_name" "$output")
+_adapter_registry_populate_array_from_output() {
+	local array_name="$1"
+	local output="$2"
+	
+	local count
+	count=$(echo "$output" | head -n 1)
+	
+	# Populate array from remaining lines (only if count > 0)
+	if [[ "$count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			eval "${array_name}[\"$key\"]=\"$value\""
+		done < <(echo "$output" | tail -n +2)
+	fi
+	
+	echo "$count"
+	return 0
+}
+
+# Helper: Determine the base directory for registry files
+_adapter_registry_determine_base_dir() {
+	# Determine the base directory - prioritize TEST_ADAPTER_REGISTRY_DIR if set
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		# TEST_ADAPTER_REGISTRY_DIR takes precedence for test consistency
+		echo "$TEST_ADAPTER_REGISTRY_DIR"
+	elif [[ -n "${REGISTRY_BASE_DIR:-}" ]] && [[ -d "${REGISTRY_BASE_DIR:-}" ]]; then
+		# Use existing REGISTRY_BASE_DIR if it's a valid directory
+		echo "$REGISTRY_BASE_DIR"
+	else
+		# Fall back to TMPDIR
+		echo "${TMPDIR:-/tmp}"
+	fi
+}
+
+# Helper: Ensure directory exists and is writable
+_adapter_registry_ensure_directory() {
+	local dir="$1"
+
+	if ! mkdir -p "$dir" 2>&1; then
+		echo "ERROR: Failed to create registry directory: $dir" >&2  # documented: Directory creation failed
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Base64 encode a value with platform fallbacks
+_adapter_registry_encode_value() {
+	local value="$1"
+	local encoded_value=""
+
+	# Base64 encode: try -w 0 (GNU) first, fall back to -b 0 (macOS) or no flag with tr
+	if encoded_value=$(echo -n "$value" | base64 -w 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with -w 0
+	elif encoded_value=$(echo -n "$value" | base64 -b 0 2>/dev/null) && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with -b 0
+	elif encoded_value=$(echo -n "$value" | base64 | tr -d '\n') && \
+		[[ -n "$encoded_value" ]]; then
+		: # Success with base64 + tr
+	fi
+
+	if [[ -z "$encoded_value" ]]; then
+		echo "ERROR: Failed to encode value" >&2  # documented: Base64 encoding failed
+		return 1
+	fi
+
+	echo "$encoded_value"
+	return 0
+}
+
+# Helper: Base64 decode a value with platform fallbacks
+_adapter_registry_decode_value() {
+	local encoded_value="$1"
+	local decoded_value=""
+
+	# Try different base64 decoding variants
+	# Check both exit code and non-empty output
+	if decoded_value=$(echo -n "$encoded_value" | base64 -d 2>/dev/null); then
+		if [[ -n "$decoded_value" ]]; then
+			echo "$decoded_value"
+			return 0
+		fi
+	elif decoded_value=$(echo -n "$encoded_value" | base64 --decode 2>/dev/null); then
+		if [[ -n "$decoded_value" ]]; then
+			echo "$decoded_value"
+			return 0
+		fi
+	fi
+
+	# All attempts failed
+	echo ""
+	return 1
+}
+
+# Helper: Save an associative array to a file with base64 encoding
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_array_to_file() {
+	local array_name="$1"
+	local file_path="$2"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Get the array reference dynamically
+	local -n array_ref="$array_name"
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for registry file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write all data to temporary file
+	for key in "${!array_ref[@]}"; do
+		local value="${array_ref[$key]}"
+		# Skip empty values (shouldn't happen, but defensive)
+		if [[ -z "$value" ]]; then
+			# Silently skip empty values (they shouldn't be in the array anyway)
+			continue
+		fi
+		local encoded_value
+		if ! encoded_value=$(_adapter_registry_encode_value "$value"); then
+			# Clean up temp file on error
+			rm -f "$temp_file"
+			echo "ERROR: Failed to encode value for key '$key': '$value'" >&2
+			return 1
+		fi
+		echo "$key=$encoded_value" >> "$temp_file" || {
+			rm -f "$temp_file"
+			echo "ERROR: Failed to write to temporary file: $temp_file" >&2
+			return 1
+		}
+	done
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
+		return 1
+	fi
+
+	return 0
+}
+
+# Helper: Load an associative array from a file with base64 decoding
+#
+# PATTERN: Return-Data Approach
+# This function uses the "return-data" pattern to avoid BATS scoping issues with
+# namerefs/eval. Instead of modifying the caller's array directly, it returns data
+# that the caller can use to populate their array.
+#
+# When to use return-data pattern:
+#   - Function needs to populate caller's array
+#   - Function is tested in BATS
+#   - Function processes data from files/external sources
+#   - You want explicit control over array population
+#
+# When nameref is acceptable:
+#   - Function only reads from arrays (not modifies)
+#   - Function modifies global arrays directly
+#   - Function is not tested in BATS or tests pass
+#   - Performance is critical (nameref is slightly faster)
+#
+# Returns: first line is count, subsequent lines are key=value pairs (decoded)
+# Caller should read first line for count, then process remaining lines to populate array
+#
+# Usage example:
+#   output=$(_adapter_registry_load_array_from_file "array_name" "$file")
+#   count=$(echo "$output" | head -n 1)
+#   if [[ "$count" -gt 0 ]]; then
+#     while IFS='=' read -r key value || [[ -n "$key" ]]; do
+#       [[ -z "$key" ]] && continue
+#       array["$key"]="$value"
+#     done < <(echo "$output" | tail -n +2)
+#   fi
+_adapter_registry_load_array_from_file() {
+	local array_name="$1"
+	local file_path="$2"
+
+	if [[ ! -f "$file_path" ]]; then
+		echo "0"
+		return 0
+	fi
+
+	local loaded_count=0
+	local line_key
+	local line_encoded_value
+	local output_lines=""
+	
+	# Process file and build output
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Skip empty lines
+		[[ -z "$line" ]] && continue
+
+		# Split on first '=' only (since base64 can contain '=')
+		line_key="${line%%=*}"
+		line_encoded_value="${line#*=}"
+
+		# Skip malformed entries
+		if [[ -n "$line_key" ]] && [[ -n "$line_encoded_value" ]]; then
+			local decoded_value
+			local decode_exit
+			decoded_value=$(_adapter_registry_decode_value "$line_encoded_value" 2>/dev/null)
+			decode_exit=$?
+			if [[ $decode_exit -eq 0 ]] && [[ -n "$decoded_value" ]]; then
+				# Buffer the output
+				output_lines+="${line_key}=${decoded_value}"$'\n'
+				loaded_count=$((loaded_count + 1))
+			else
+				# documented: Base64 decode failed, skipping corrupted registry entry
+				echo "WARNING: Failed to decode base64 value for key '$line_key', skipping entry" >&2
+			fi
+		fi
+	done < "$file_path"
+
+	# Output count first, then data
+	echo "$loaded_count"
+	echo -n "$output_lines"
+	return 0
+}
+
+# Helper: Save order array to file
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_order() {
+	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for order file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write all data to temporary file
+	if ! printf '%s\n' "${ADAPTER_REGISTRY_ORDER[@]}" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary order file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2  # documented: Order file write failed
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Save initialized flag to file
+# Uses atomic write: writes to temp file first, then renames atomically
+_adapter_registry_save_initialized() {
+	local file_path="$1"
+	local dir_path
+	dir_path=$(dirname "$file_path")
+
+	# Ensure directory exists before writing (defensive check)
+	# Don't suppress stderr - we need to see actual errors
+	if ! mkdir -p "$dir_path" 2>&1; then
+		echo "ERROR: Failed to create directory for init file: $dir_path" >&2
+		return 1
+	fi
+
+	# Verify directory actually exists after creation
+	if [[ ! -d "$dir_path" ]]; then
+		echo "ERROR: Directory does not exist after creation: $dir_path" >&2
+		return 1
+	fi
+
+	# Create temporary file in the same directory for atomic write
+	# Re-ensure directory exists right before mktemp to handle race conditions in parallel execution
+	mkdir -p "$dir_path" 2>/dev/null || true
+	local temp_file
+	temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+	local mktemp_exit=$?
+	if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+		# If mktemp failed due to missing directory, try creating directory again and retry once
+		if [[ "$temp_file" == *"No such file or directory"* ]] && [[ -n "$dir_path" ]]; then
+			mkdir -p "$dir_path" 2>/dev/null || true
+			temp_file=$(mktemp -p "$dir_path" "${file_path##*/}.tmp.XXXXXX" 2>&1)
+			mktemp_exit=$?
+		fi
+		if [[ $mktemp_exit -ne 0 ]] || [[ ! -f "$temp_file" ]]; then
+			echo "ERROR: Failed to create temporary file for atomic write: $temp_file" >&2
+			return 1
+		fi
+	fi
+
+	# Write data to temporary file
+	if ! echo "$ADAPTER_REGISTRY_INITIALIZED" > "$temp_file" 2>&1; then
+		rm -f "$temp_file"
+		echo "ERROR: Failed to write to temporary init file: $temp_file" >&2
+		return 1
+	fi
+
+	# Atomically rename temp file to final file (atomic on most filesystems)
+	if ! mv "$temp_file" "$file_path" 2>&1; then
+		# Clean up temp file if rename failed
+		rm -f "$temp_file"
+		echo "ERROR: Failed to atomically rename temporary file to: $file_path" >&2
+		return 1
+	fi
+	return 0
+}
+
+# Helper: Determine file locations and update globals
+_adapter_registry_determine_file_locations() {
+	# If TEST_ADAPTER_REGISTRY_DIR is set, always use it (for test consistency)
+	local registry_base_dir
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]]; then
+		registry_base_dir="$TEST_ADAPTER_REGISTRY_DIR"
+	else
+		# Re-evaluate REGISTRY_BASE_DIR to use current TEST_ADAPTER_REGISTRY_DIR value
+		registry_base_dir="${TMPDIR:-/tmp}"
+	fi
+
+	local registry_file="$registry_base_dir/suitey_adapter_registry"
+	local capabilities_file="$registry_base_dir/suitey_adapter_capabilities"
+	local order_file="$registry_base_dir/suitey_adapter_order"
+	local init_file="$registry_base_dir/suitey_adapter_init"
+
+	# Ensure directory exists before trying to read files
+	mkdir -p "$registry_base_dir"
+
+	# Check if we're switching locations BEFORE updating globals
+	local switching_locations=false
+	if [[ -n "${ADAPTER_REGISTRY_FILE:-}" ]] && [[ "$registry_file" != "${ADAPTER_REGISTRY_FILE:-}" ]]; then
+		switching_locations=true
+	fi
+
+	# Always update global variables when TEST_ADAPTER_REGISTRY_DIR is set,
+	# or if registry file exists in the new location, or if globals haven't been set yet
+	if [[ -n "${TEST_ADAPTER_REGISTRY_DIR:-}" ]] || \
+		[[ -f "$registry_file" ]] || \
+		[[ ! -f "${ADAPTER_REGISTRY_FILE:-/nonexistent}" ]]; then
+		REGISTRY_BASE_DIR="$registry_base_dir"
+		ADAPTER_REGISTRY_FILE="$registry_file"
+		ADAPTER_REGISTRY_CAPABILITIES_FILE="$capabilities_file"
+		ADAPTER_REGISTRY_ORDER_FILE="$order_file"
+		ADAPTER_REGISTRY_INIT_FILE="$init_file"
+	fi
+
+	# Return the actual file paths
+	echo "$registry_file"
+	echo "$capabilities_file"
+	echo "$order_file"
+	echo "$init_file"
+}
+
+# Helper: Determine if state should be reloaded
+_adapter_registry_should_reload() {
+	local registry_file="$1"
+	local capabilities_file="$2"
+	local switching_locations="$3"
+
+	# Reload if the registry file exists (to load latest state from disk),
+	# or if we're switching to a different file location
+	if [[ -f "$registry_file" ]]; then
+		# File exists - reload to get latest state
+		echo "true"
+	elif [[ "$switching_locations" == "true" ]]; then
+		# Switching locations - clear to start fresh
+		echo "true"
+	else
+		echo "false"
+	fi
+}
+
+# Helper: Rebuild capabilities index from loaded adapters
+_adapter_registry_rebuild_capabilities() {
+	local capabilities_loaded="$1"
+	local switching_locations="$2"
+	local capabilities_file="$3"
+
+	# Rebuild capabilities index from loaded adapters only if:
+	# 1. Capabilities file doesn't exist or is empty (capabilities_loaded is false)
+	# 2. We're switching locations (need to rebuild from scratch)
+	# 3. The capabilities file exists but is empty
+	# This prevents unnecessary rebuilds on every load_state() call, but ensures
+	# consistency when files are missing or when switching locations
+	if [[ ${#ADAPTER_REGISTRY[@]} -gt 0 ]]; then
+		local should_rebuild_capabilities=false
+
+		if [[ "$capabilities_loaded" == "false" ]]; then
+			# No capabilities file or file is empty - rebuild from adapters
+			should_rebuild_capabilities=true
+		elif [[ "$switching_locations" == "true" ]]; then
+			# Switching locations - rebuild to ensure consistency
+			should_rebuild_capabilities=true
+		elif [[ ! -v ADAPTER_REGISTRY_CAPABILITIES ]] || [[ ${#ADAPTER_REGISTRY_CAPABILITIES[@]} -eq 0 ]] && [[ -f "$capabilities_file" ]]; then
+			# Capabilities file exists but is empty - rebuild
+			should_rebuild_capabilities=true
+		fi
+
+		if [[ "$should_rebuild_capabilities" == "true" ]]; then
+			# Clear and rebuild from scratch
+			ADAPTER_REGISTRY_CAPABILITIES=()
+			for adapter_id in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+				if [[ -v ADAPTER_REGISTRY["$adapter_id"] ]]; then
+					adapter_registry_index_capabilities "$adapter_id" "${ADAPTER_REGISTRY["$adapter_id"]}"
+				fi
+			done
+		fi
+	fi
+}
+
+# Helper: Parse file paths from helper output
+_adapter_registry_parse_file_paths() {
+	local file_paths="$1"
+	echo "$file_paths" | sed -n '1p'
+	echo "$file_paths" | sed -n '2p'
+	echo "$file_paths" | sed -n '3p'
+	echo "$file_paths" | sed -n '4p'
+}
+
+# Helper: Load order array from file with filtering
+_adapter_registry_load_order_array() {
+	local order_file="$1"
+	if [[ -f "$order_file" ]]; then
+		mapfile -t ADAPTER_REGISTRY_ORDER < "$order_file"
+		# Filter out empty lines and trim spaces (avoid command substitution for BATS compatibility)
+		local filtered_array=()
+		local element
+		for element in "${ADAPTER_REGISTRY_ORDER[@]}"; do
+			# Trim leading/trailing spaces
+			local trimmed="${element#"${element%%[![:space:]]*}"}"  # Remove leading spaces
+			trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"  # Remove trailing spaces
+			# Only add non-empty elements
+			[[ -n "$trimmed" ]] && filtered_array+=("$trimmed")
+		done
+		ADAPTER_REGISTRY_ORDER=("${filtered_array[@]}")
+	fi
+}
+
+# Helper: Load order array from file using return-data pattern
+# Returns: count on first line, then one identifier per line
+_adapter_registry_load_order_from_file() {
+	local order_file="$1"
+	
+	if [[ ! -f "$order_file" ]]; then
+		echo "0"  # Return count of 0 if file doesn't exist
+		return 0
+	fi
+	
+	# Read file and filter out empty lines
+	local filtered_lines=()
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		# Trim leading/trailing spaces
+		local trimmed="${line#"${line%%[![:space:]]*}"}"
+		trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+		# Only add non-empty lines
+		[[ -n "$trimmed" ]] && filtered_lines+=("$trimmed")
+	done < "$order_file"
+	
+	# Return count first, then data (consistent with array loading pattern)
+	echo "${#filtered_lines[@]}"
+	printf '%s\n' "${filtered_lines[@]}"
+	return 0
+}
+
+# Helper: Perform reload operations
+_adapter_registry_perform_reload() {
+	local actual_registry_file="$1"
+	local actual_capabilities_file="$2"
+	local actual_order_file="$3"
+	local switching_locations="$4"
+
+	# Clear arrays before loading to ensure clean state from file
+	ADAPTER_REGISTRY=()
+	# Only clear capabilities if we're going to load from file
+	# This prevents losing in-memory state when file doesn't exist
+	if [[ -f "$actual_capabilities_file" ]] || [[ "$switching_locations" == "true" ]]; then
+		ADAPTER_REGISTRY_CAPABILITIES=()
+	fi
+	ADAPTER_REGISTRY_ORDER=()
+
+	# Load arrays from files using return-data pattern (manual population for BATS compatibility)
+	local registry_output
+	registry_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY" "$actual_registry_file")
+	local registry_count
+	registry_count=$(echo "$registry_output" | head -n 1)
+	# Manually populate registry array from output
+	if [[ "$registry_count" -gt 0 ]]; then
+		while IFS='=' read -r key value || [[ -n "$key" ]]; do
+			[[ -z "$key" ]] && continue
+			ADAPTER_REGISTRY["$key"]="$value"
+		done < <(echo "$registry_output" | tail -n +2)
+	fi
+
+	local capabilities_loaded=false
+	if [[ -f "$actual_capabilities_file" ]]; then
+		local capabilities_output
+		capabilities_output=$(_adapter_registry_load_array_from_file "ADAPTER_REGISTRY_CAPABILITIES" "$actual_capabilities_file")
+		local loaded_count
+		loaded_count=$(echo "$capabilities_output" | head -n 1)
+		# Manually populate capabilities array from output
+		if [[ "$loaded_count" -gt 0 ]]; then
+			while IFS='=' read -r key value || [[ -n "$key" ]]; do
+				[[ -z "$key" ]] && continue
+				ADAPTER_REGISTRY_CAPABILITIES["$key"]="$value"
+			done < <(echo "$capabilities_output" | tail -n +2)
+		fi
+		[[ "$loaded_count" -gt 0 ]] && capabilities_loaded=true
+	fi
+
+	_adapter_registry_load_order_array "$actual_order_file"
+	_adapter_registry_rebuild_capabilities "$capabilities_loaded" "$switching_locations" "$actual_capabilities_file"
+}
+
+# ============================================================================
 # Source: src/adapter_registry.sh
 # ============================================================================
 # ============================================================================
@@ -2192,8 +3412,7 @@ _rust_build_test_suites_json() {
 	
 	local test_count=$(count_rust_tests "$(get_absolute_path "$file")")
 
-	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\"," \
-		"\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
+	suites_json="${suites_json}{\"name\":\"${suite_name}\",\"framework\":\"rust\",\"test_files\":[\"${rel_path}\"],\"metadata\":{},\"execution_config\":{}},"
 	done
 	suites_json="${suites_json%,}]"
 
